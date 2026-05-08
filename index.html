@@ -1094,10 +1094,11 @@ class BootScene extends Phaser.Scene {
         }).setOrigin(0.5);
         this.tweens.add({ targets: this.children.getAll().slice(-1)[0], alpha: 0.2, duration: 500, yoyo: true, repeat: -1 });
         this.input.once('pointerdown', () => {
-          synth.init();
+          synth.init();   // must be called inside a user gesture for iOS AudioContext policy
           synth.resume();
           this.cameras.main.fade(300, 0, 0, 0);
           const scene = this.scene;
+          // Use native setTimeout so the transition fires even if Phaser's loop is briefly paused.
           setTimeout(() => scene.start('MenuScene'), 320);
         });
         return;
@@ -1196,6 +1197,7 @@ class MenuScene extends Phaser.Scene {
         synth.menuTap();
         this.cameras.main.shake(80, 0.005);
         const scene = this.scene;
+        // Use native setTimeout so the transition fires even if Phaser's loop is briefly paused on iOS.
         setTimeout(() => {
           if (b.scene === 'DifficultyScene') {
             scene.start('DifficultyScene');
@@ -1341,6 +1343,7 @@ class DifficultyScene extends Phaser.Scene {
         this.cameras.main.shake(60, 0.005);
         const scene = this.scene;
         const selectedCourt = this.selectedCourt;
+        // Use native setTimeout so the transition fires even if Phaser's loop is briefly paused on iOS.
         setTimeout(() => {
           scene.start('MatchScene', {
             mode: 'pvc', difficulty: d.key,
@@ -2716,6 +2719,9 @@ class TrainingScene extends Phaser.Scene {
 // PHASER GAME CONFIG
 // ═══════════════════════════════════════════════════════════
 const config = {
+  // Use CANVAS renderer for broad mobile browser compatibility.
+  // WebGL (Phaser.AUTO) can cause silent failures on some iOS/Android browsers;
+  // for this 2D sprite game Canvas performance is perfectly adequate.
   type: Phaser.CANVAS,
   backgroundColor: '#0a0f1e',
   parent: 'game-container',
@@ -2731,6 +2737,7 @@ const config = {
   },
   scene: [BootScene, MenuScene, DifficultyScene, MatchScene, ResultScene, LeagueScene, TrainingScene],
   render: {
+    // antialias off and roundPixels on for crisper rendering and better performance on mobile.
     antialias: false,
     pixelArt: false,
     roundPixels: true,
@@ -2738,8 +2745,12 @@ const config = {
   input: {
     touch: true,
     mouse: true,
+    // 3 active pointers: left joystick finger + right action-button finger + spare for HvH mode.
     activePointers: 3,
   },
+  // Keep the game loop running when iOS/Android briefly steals focus (e.g. on audio unlock).
+  // Without this, Phaser pauses and scene-transition timers never fire, making the game
+  // appear to not launch after tapping a menu button.
   disableVisibilityChange: true,
 };
 
