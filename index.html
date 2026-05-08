@@ -1,0 +1,2743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+<title>Pocket Tennis League</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: 100vh;
+    font-family: 'Arial', sans-serif;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #game-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.87.0/dist/phaser.min.js"></script>
+<script>
+// ============================================================
+// POCKET TENNIS LEAGUE — Full Phaser 3 Game
+// ============================================================
+
+// ─── CONSTANTS ──────────────────────────────────────────────
+const W = 390, H = 844; // iPhone 14 Pro logical canvas
+const COURT_TOP    = 160;
+const COURT_BOTTOM = 680;
+const COURT_LEFT   = 30;
+const COURT_RIGHT  = 360;
+const NET_Y        = (COURT_TOP + COURT_BOTTOM) / 2; // ~420
+const COURT_MID_X  = (COURT_LEFT + COURT_RIGHT) / 2; // 195
+const GRAVITY      = 800;
+const BOUNCE_DAMP  = 0.62;
+const BALL_RADIUS  = 8;
+const COLORS = {
+  grass:   0x2d7a27,
+  clay:    0xc04a1a,
+  hard:    0x3a6ea5,
+  white:   0xffffff,
+  yellow:  0xf5e642,
+  black:   0x000000,
+  navy:    0x0a1628,
+  gold:    0xffd700,
+  red:     0xff3333,
+  green:   0x33ff77,
+  blue:    0x33aaff,
+  purple:  0xaa44ff,
+  orange:  0xff8833,
+  darkgray:0x222222,
+  lightgray:0xcccccc,
+  pink:    0xff69b4,
+};
+
+// ─── ASSET GENERATOR (Canvas-based sprites) ─────────────────
+class AssetGen {
+  static makeTexture(scene, key, fn, w, h) {
+    if (scene.textures.exists(key)) return;
+    const g = scene.make.graphics({ x: 0, y: 0, add: false });
+    fn(g, w, h);
+    g.generateTexture(key, w, h);
+    g.destroy();
+  }
+
+  static generateAll(scene) {
+    // --- BALL ---
+    AssetGen.makeTexture(scene, 'ball', (g) => {
+      g.fillStyle(0xf5e642, 1);
+      g.fillCircle(10, 10, 10);
+      g.lineStyle(1.5, 0xc8bb00, 1);
+      g.beginPath();
+      g.arc(10, 10, 6, -0.5, 0.5, false);
+      g.strokePath();
+      g.beginPath();
+      g.arc(10, 10, 6, Math.PI - 0.5, Math.PI + 0.5, false);
+      g.strokePath();
+    }, 20, 20);
+
+    // --- BALL SHADOW ---
+    AssetGen.makeTexture(scene, 'ball_shadow', (g) => {
+      g.fillStyle(0x000000, 0.35);
+      g.fillEllipse(10, 5, 18, 7);
+    }, 20, 10);
+
+    // --- PLAYER 1 (blue) ---
+    AssetGen.makeTexture(scene, 'player1', (g) => {
+      AssetGen._drawPlayer(g, 0x3a9bdc, 0xfde8c8, 0xffffff);
+    }, 36, 56);
+
+    // --- PLAYER 2 (red) ---
+    AssetGen.makeTexture(scene, 'player2', (g) => {
+      AssetGen._drawPlayer(g, 0xe03030, 0xfde8c8, 0xffffff);
+    }, 36, 56);
+
+    // --- PLAYER SHADOW ---
+    AssetGen.makeTexture(scene, 'player_shadow', (g) => {
+      g.fillStyle(0x000000, 0.25);
+      g.fillEllipse(18, 6, 32, 10);
+    }, 36, 12);
+
+    // --- NET ---
+    AssetGen.makeTexture(scene, 'net', (g) => {
+      const W = 330, H = 28;
+      g.fillStyle(0xffffff, 0.9);
+      g.fillRect(0, 0, W, 4);
+      g.fillRect(0, H - 4, W, 4);
+      g.fillStyle(0xffffff, 0.4);
+      for (let x = 0; x <= W; x += 12) {
+        g.fillRect(x, 0, 1, H);
+      }
+      for (let y = 0; y <= H; y += 7) {
+        g.fillRect(0, y, W, 1);
+      }
+    }, 330, 28);
+
+    // --- COURT BACKGROUNDS ---
+    AssetGen._makeGrassCourt(scene);
+    AssetGen._makeHardCourt(scene);
+    AssetGen._makeClayCourtBg(scene);
+
+    // --- UI ELEMENTS ---
+    AssetGen.makeTexture(scene, 'btn_primary', (g) => {
+      g.fillStyle(0x1a6bff, 1);
+      g.fillRoundedRect(0, 0, 220, 54, 14);
+      g.lineStyle(2, 0x88aaff, 0.6);
+      g.strokeRoundedRect(0, 0, 220, 54, 14);
+    }, 220, 54);
+
+    AssetGen.makeTexture(scene, 'btn_secondary', (g) => {
+      g.fillStyle(0x222244, 1);
+      g.fillRoundedRect(0, 0, 220, 54, 14);
+      g.lineStyle(2, 0x5555aa, 0.6);
+      g.strokeRoundedRect(0, 0, 220, 54, 14);
+    }, 220, 54);
+
+    AssetGen.makeTexture(scene, 'btn_small', (g) => {
+      g.fillStyle(0x1a3a6b, 1);
+      g.fillRoundedRect(0, 0, 100, 42, 10);
+      g.lineStyle(1.5, 0x4477cc, 0.7);
+      g.strokeRoundedRect(0, 0, 100, 42, 10);
+    }, 100, 42);
+
+    AssetGen.makeTexture(scene, 'btn_hit', (g) => {
+      g.fillStyle(0x1a6bff, 1);
+      g.fillCircle(40, 40, 40);
+      g.lineStyle(3, 0x88aaff, 0.7);
+      g.strokeCircle(40, 40, 40);
+    }, 80, 80);
+
+    AssetGen.makeTexture(scene, 'btn_lob', (g) => {
+      g.fillStyle(0x1a9b4f, 1);
+      g.fillCircle(30, 30, 30);
+      g.lineStyle(2, 0x55ff99, 0.7);
+      g.strokeCircle(30, 30, 30);
+    }, 60, 60);
+
+    AssetGen.makeTexture(scene, 'btn_spin', (g) => {
+      g.fillStyle(0xaa5500, 1);
+      g.fillCircle(30, 30, 30);
+      g.lineStyle(2, 0xff9944, 0.7);
+      g.strokeCircle(30, 30, 30);
+    }, 60, 60);
+
+    AssetGen.makeTexture(scene, 'btn_smash', (g) => {
+      g.fillStyle(0x990011, 1);
+      g.fillCircle(30, 30, 30);
+      g.lineStyle(2, 0xff4455, 0.7);
+      g.strokeCircle(30, 30, 30);
+    }, 60, 60);
+
+    AssetGen.makeTexture(scene, 'joystick_base', (g) => {
+      g.fillStyle(0xffffff, 0.12);
+      g.fillCircle(55, 55, 55);
+      g.lineStyle(2, 0xffffff, 0.25);
+      g.strokeCircle(55, 55, 55);
+    }, 110, 110);
+
+    AssetGen.makeTexture(scene, 'joystick_thumb', (g) => {
+      g.fillStyle(0xffffff, 0.45);
+      g.fillCircle(28, 28, 28);
+      g.lineStyle(2, 0xffffff, 0.6);
+      g.strokeCircle(28, 28, 28);
+    }, 56, 56);
+
+    AssetGen.makeTexture(scene, 'panel', (g) => {
+      g.fillStyle(0x050d1a, 0.92);
+      g.fillRoundedRect(0, 0, 340, 520, 20);
+      g.lineStyle(2, 0x2244aa, 0.5);
+      g.strokeRoundedRect(0, 0, 340, 520, 20);
+    }, 340, 520);
+
+    AssetGen.makeTexture(scene, 'score_panel', (g) => {
+      g.fillStyle(0x05111f, 0.85);
+      g.fillRoundedRect(0, 0, 360, 60, 12);
+      g.lineStyle(1.5, 0x1a3a6b, 0.8);
+      g.strokeRoundedRect(0, 0, 360, 60, 12);
+    }, 360, 60);
+
+    AssetGen.makeTexture(scene, 'particle', (g) => {
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(4, 4, 4);
+    }, 8, 8);
+
+    AssetGen.makeTexture(scene, 'star', (g) => {
+      g.fillStyle(0xffd700, 1);
+      AssetGen._drawStar(g, 10, 10, 5, 10, 4);
+    }, 20, 20);
+
+    AssetGen.makeTexture(scene, 'logo_bg', (g) => {
+      g.fillStyle(0x0a0f1e, 1);
+      g.fillRect(0, 0, 390, 844);
+      // Gradient overlay effect
+      for (let i = 0; i < 40; i++) {
+        const alpha = (0.04 - i * 0.001);
+        if (alpha <= 0) break;
+        g.fillStyle(0x1a3aff, alpha);
+        g.fillRect(0, i * 21, 390, 21);
+      }
+    }, 390, 844);
+
+    AssetGen.makeTexture(scene, 'racket', (g) => {
+      // Handle
+      g.fillStyle(0x8B4513, 1);
+      g.fillRect(14, 36, 7, 18);
+      // Head
+      g.lineStyle(4, 0xdddddd, 1);
+      g.strokeEllipse(17, 26, 22, 28);
+      // Strings
+      g.lineStyle(1, 0xdddddd, 0.6);
+      for (let x = 8; x <= 26; x += 4) { g.beginPath(); g.moveTo(x, 13); g.lineTo(x, 39); g.strokePath(); }
+      for (let y = 13; y <= 39; y += 4) { g.beginPath(); g.moveTo(8, y); g.lineTo(26, y); g.strokePath(); }
+    }, 34, 54);
+
+    // Target for training
+    AssetGen.makeTexture(scene, 'target', (g) => {
+      g.lineStyle(3, 0xff3333, 0.9);
+      g.strokeCircle(20, 20, 20);
+      g.lineStyle(2, 0xff3333, 0.7);
+      g.strokeCircle(20, 20, 13);
+      g.lineStyle(2, 0xff3333, 0.5);
+      g.strokeCircle(20, 20, 7);
+    }, 40, 40);
+
+    // Crowd silhouette row
+    AssetGen.makeTexture(scene, 'crowd', (g) => {
+      const colors = [0x2255aa, 0xaa2233, 0x22aa55, 0xaaaa22, 0x882299, 0x229988, 0xff6633, 0x3399ff];
+      // Background seating
+      g.fillStyle(0x1a1a2e, 1);
+      g.fillRect(0, 0, 390, 40);
+      // Crowd figures
+      for (let i = 0; i < 390; i += 18) {
+        const col = colors[Math.floor(i / 18) % colors.length];
+        const bounce = Math.sin(i * 0.3) * 3;
+        g.fillStyle(col, 0.8);
+        g.fillEllipse(i + 9, 30 + bounce, 14, 22);
+        g.fillStyle(0xf5d5a0, 0.9);
+        g.fillCircle(i + 9, 12 + bounce, 5.5);
+      }
+      // Wave highlights
+      g.fillStyle(0xffffff, 0.1);
+      g.fillRect(0, 0, 390, 4);
+    }, 390, 40);
+
+    // Stadium overhead lights
+    AssetGen.makeTexture(scene, 'stadium_light', (g) => {
+      g.fillStyle(0xffffee, 0.9);
+      g.fillCircle(15, 15, 12);
+      g.fillStyle(0xffffee, 0.3);
+      g.fillCircle(15, 15, 18);
+    }, 30, 30);
+  }
+
+  static _drawStar(g, cx, cy, spikes, outerR, innerR) {
+    let rot = (Math.PI / 2) * 3;
+    const step = Math.PI / spikes;
+    g.beginPath();
+    for (let i = 0; i < spikes; i++) {
+      g.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+      rot += step;
+      g.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+      rot += step;
+    }
+    g.closePath();
+    g.fillPath();
+  }
+
+  static _drawPlayer(g, shirtColor, skinColor, shortColor) {
+    // Shadow base
+    g.fillStyle(shirtColor, 0.15);
+    g.fillEllipse(18, 52, 28, 10);
+    // Legs
+    g.fillStyle(shortColor, 1);
+    g.fillRect(11, 34, 7, 16);
+    g.fillRect(19, 34, 7, 16);
+    // Shoes
+    g.fillStyle(0x333333, 1);
+    g.fillRect(9, 48, 9, 6);
+    g.fillRect(19, 48, 9, 6);
+    // Body / shirt
+    g.fillStyle(shirtColor, 1);
+    g.fillRect(9, 18, 18, 20);
+    // Arms
+    g.fillStyle(skinColor, 1);
+    g.fillRect(3, 20, 6, 14);
+    g.fillRect(27, 20, 6, 14);
+    // Racket hand
+    g.fillStyle(shirtColor, 0.8);
+    g.fillRect(27, 28, 8, 4);
+    // Head
+    g.fillStyle(skinColor, 1);
+    g.fillCircle(18, 12, 10);
+    // Hair
+    g.fillStyle(0x3a2000, 1);
+    g.fillEllipse(18, 7, 18, 10);
+    // Eyes
+    g.fillStyle(0x111111, 1);
+    g.fillCircle(14, 12, 2);
+    g.fillCircle(22, 12, 2);
+    // Shorts stripe
+    g.fillStyle(shortColor, 0.7);
+    g.fillRect(9, 36, 18, 4);
+  }
+
+  static _makeGrassCourt(scene) {
+    if (scene.textures.exists('court_grass')) return;
+    const g = scene.make.graphics({ x: 0, y: 0, add: false });
+    const W = 390, H = 844;
+    // Background
+    g.fillStyle(0x1a5c17, 1);
+    g.fillRect(0, 0, W, H);
+    // Alternating grass stripes
+    for (let i = 0; i < 20; i++) {
+      g.fillStyle(i % 2 === 0 ? 0x1d6619 : 0x177014, 1);
+      g.fillRect(0, i * 44, W, 44);
+    }
+    // Court outline
+    g.lineStyle(3, 0xffffff, 0.95);
+    g.strokeRect(COURT_LEFT, COURT_TOP, COURT_RIGHT - COURT_LEFT, COURT_BOTTOM - COURT_TOP);
+    // Service boxes
+    g.lineStyle(2, 0xffffff, 0.85);
+    // Center service line
+    g.beginPath(); g.moveTo(COURT_MID_X, COURT_TOP); g.lineTo(COURT_MID_X, COURT_BOTTOM); g.strokePath();
+    // Net line
+    g.beginPath(); g.moveTo(COURT_LEFT, NET_Y); g.lineTo(COURT_RIGHT, NET_Y); g.strokePath();
+    // Service lines
+    const svcTop = COURT_TOP + (NET_Y - COURT_TOP) * 0.55;
+    const svcBot = COURT_BOTTOM - (NET_Y - COURT_TOP) * 0.55;
+    g.beginPath(); g.moveTo(COURT_LEFT, svcTop); g.lineTo(COURT_RIGHT, svcTop); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_LEFT, svcBot); g.lineTo(COURT_RIGHT, svcBot); g.strokePath();
+    // Doubles alleys
+    g.lineStyle(1.5, 0xffffff, 0.5);
+    g.beginPath(); g.moveTo(COURT_LEFT + 22, COURT_TOP); g.lineTo(COURT_LEFT + 22, COURT_BOTTOM); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_RIGHT - 22, COURT_TOP); g.lineTo(COURT_RIGHT - 22, COURT_BOTTOM); g.strokePath();
+    // Center marks
+    g.lineStyle(2, 0xffffff, 0.8);
+    g.beginPath(); g.moveTo(COURT_MID_X - 5, COURT_TOP); g.lineTo(COURT_MID_X + 5, COURT_TOP); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_MID_X - 5, COURT_BOTTOM); g.lineTo(COURT_MID_X + 5, COURT_BOTTOM); g.strokePath();
+    g.generateTexture('court_grass', W, H);
+    g.destroy();
+  }
+
+  static _makeHardCourt(scene) {
+    if (scene.textures.exists('court_hard')) return;
+    const g = scene.make.graphics({ x: 0, y: 0, add: false });
+    const W = 390, H = 844;
+    g.fillStyle(0x2a5080, 1);
+    g.fillRect(0, 0, W, H);
+    // Service area lighter
+    g.fillStyle(0x1a3f6b, 1);
+    g.fillRect(COURT_LEFT, COURT_TOP, COURT_RIGHT - COURT_LEFT, NET_Y - COURT_TOP);
+    g.fillStyle(0x336699, 1);
+    g.fillRect(COURT_LEFT, NET_Y, COURT_RIGHT - COURT_LEFT, COURT_BOTTOM - NET_Y);
+    // Lines
+    g.lineStyle(3, 0xffffff, 0.95);
+    g.strokeRect(COURT_LEFT, COURT_TOP, COURT_RIGHT - COURT_LEFT, COURT_BOTTOM - COURT_TOP);
+    g.lineStyle(2, 0xffffff, 0.85);
+    g.beginPath(); g.moveTo(COURT_MID_X, COURT_TOP); g.lineTo(COURT_MID_X, COURT_BOTTOM); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_LEFT, NET_Y); g.lineTo(COURT_RIGHT, NET_Y); g.strokePath();
+    const svcTop = COURT_TOP + (NET_Y - COURT_TOP) * 0.55;
+    const svcBot = COURT_BOTTOM - (NET_Y - COURT_TOP) * 0.55;
+    g.beginPath(); g.moveTo(COURT_LEFT, svcTop); g.lineTo(COURT_RIGHT, svcTop); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_LEFT, svcBot); g.lineTo(COURT_RIGHT, svcBot); g.strokePath();
+    g.generateTexture('court_hard', W, H);
+    g.destroy();
+  }
+
+  static _makeClayCourtBg(scene) {
+    if (scene.textures.exists('court_clay')) return;
+    const g = scene.make.graphics({ x: 0, y: 0, add: false });
+    const W = 390, H = 844;
+    g.fillStyle(0xb84020, 1);
+    g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 30; i++) {
+      g.fillStyle(i % 2 === 0 ? 0xc04828 : 0xaa3818, 0.5);
+      g.fillRect(0, i * 30, W, 30);
+    }
+    g.lineStyle(3, 0xffeedd, 0.9);
+    g.strokeRect(COURT_LEFT, COURT_TOP, COURT_RIGHT - COURT_LEFT, COURT_BOTTOM - COURT_TOP);
+    g.lineStyle(2, 0xffeedd, 0.8);
+    g.beginPath(); g.moveTo(COURT_MID_X, COURT_TOP); g.lineTo(COURT_MID_X, COURT_BOTTOM); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_LEFT, NET_Y); g.lineTo(COURT_RIGHT, NET_Y); g.strokePath();
+    const svcTop = COURT_TOP + (NET_Y - COURT_TOP) * 0.55;
+    const svcBot = COURT_BOTTOM - (NET_Y - COURT_TOP) * 0.55;
+    g.beginPath(); g.moveTo(COURT_LEFT, svcTop); g.lineTo(COURT_RIGHT, svcTop); g.strokePath();
+    g.beginPath(); g.moveTo(COURT_LEFT, svcBot); g.lineTo(COURT_RIGHT, svcBot); g.strokePath();
+    g.generateTexture('court_clay', W, H);
+    g.destroy();
+  }
+}
+
+// ─── AUDIO SYNTH ────────────────────────────────────────────
+class AudioSynth {
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+  }
+  init() {
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { this.enabled = false; }
+  }
+  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+  _play(freq, type, dur, vol=0.3, detune=0, attack=0.01, decay=0.1) {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      osc.detune.setValueAtTime(detune, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0, this.ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + attack);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+      osc.start(this.ctx.currentTime);
+      osc.stop(this.ctx.currentTime + dur);
+    } catch(e) {}
+  }
+  ballHit(power=1) {
+    this._play(300 + power * 200, 'triangle', 0.12, 0.4, 0, 0.005, 0.1);
+    this._play(150, 'sine', 0.08, 0.2, 0, 0.005, 0.06);
+  }
+  bounce() {
+    this._play(180, 'sine', 0.18, 0.25, 0, 0.005, 0.15);
+    this._play(90, 'triangle', 0.12, 0.15, 0, 0.005, 0.1);
+  }
+  serve() {
+    this._play(400, 'triangle', 0.15, 0.5, 0, 0.005, 0.12);
+    this._play(200, 'sine', 0.1, 0.3, 0, 0.005, 0.08);
+  }
+  netHit() {
+    this._play(80, 'sawtooth', 0.2, 0.3, 0, 0.005, 0.15);
+  }
+  point() {
+    [440, 550, 660, 880].forEach((f, i) => {
+      setTimeout(() => this._play(f, 'sine', 0.3, 0.35, 0, 0.01, 0.25), i * 100);
+    });
+  }
+  menuTap() {
+    this._play(660, 'sine', 0.1, 0.2, 0, 0.005, 0.08);
+  }
+  victory() {
+    const melody = [523, 659, 784, 1047, 784, 1047, 1319];
+    melody.forEach((f, i) => setTimeout(() => this._play(f, 'sine', 0.35, 0.4, 0, 0.01, 0.3), i * 130));
+  }
+  crowd(intensity=0.5) {
+    for (let i = 0; i < 8; i++) {
+      setTimeout(() => {
+        this._play(100 + Math.random() * 300, 'sine', 0.4 + Math.random() * 0.3,
+          intensity * 0.08 * Math.random(), Math.random() * 200 - 100, 0.05, 0.3);
+      }, i * 50);
+    }
+  }
+}
+
+const synth = new AudioSynth();
+
+// ─── LEAGUE MANAGER ─────────────────────────────────────────
+class LeagueManager {
+  static generateCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  static getLeagues() {
+    try { return JSON.parse(localStorage.getItem('ptl_leagues') || '{}'); } catch { return {}; }
+  }
+
+  static saveLeagues(data) {
+    try { localStorage.setItem('ptl_leagues', JSON.stringify(data)); } catch {}
+  }
+
+  static createLeague(name, playerName) {
+    const leagues = LeagueManager.getLeagues();
+    const code = LeagueManager.generateCode();
+    leagues[code] = {
+      code, name,
+      players: [{ name: playerName, wins: 0, losses: 0, points: 0 }],
+      season: 1,
+      createdAt: Date.now()
+    };
+    LeagueManager.saveLeagues(leagues);
+    return code;
+  }
+
+  static joinLeague(code, playerName) {
+    const leagues = LeagueManager.getLeagues();
+    const c = code.toUpperCase().trim();
+    if (!leagues[c]) return null;
+    const existing = leagues[c].players.find(p => p.name === playerName);
+    if (!existing) {
+      leagues[c].players.push({ name: playerName, wins: 0, losses: 0, points: 0 });
+      LeagueManager.saveLeagues(leagues);
+    }
+    return leagues[c];
+  }
+
+  static recordResult(code, winnerName, loserName) {
+    const leagues = LeagueManager.getLeagues();
+    if (!leagues[code]) return;
+    const winner = leagues[code].players.find(p => p.name === winnerName);
+    const loser  = leagues[code].players.find(p => p.name === loserName);
+    if (winner) { winner.wins++; winner.points += 3; }
+    if (loser)  { loser.losses++; }
+    LeagueManager.saveLeagues(leagues);
+  }
+
+  static getLeague(code) {
+    return LeagueManager.getLeagues()[code] || null;
+  }
+}
+
+// ─── BALL PHYSICS ────────────────────────────────────────────
+class TennisBall {
+  constructor(scene) {
+    this.scene = scene;
+    this.x = COURT_MID_X;
+    this.y = NET_Y - 40;
+    this.vx = 0;
+    this.vy = 0;
+    this.vz = 0; // vertical (up/down) for arc
+    this.z  = 0; // height off ground
+    this.spin = 0; // positive = topspin, negative = backspin
+    this.bounces = 0;
+    this.inPlay = false;
+    this.lastHitter = null; // 1 or 2
+    this.bouncePlayer = null; // which side last bounced on
+    this.trail = [];
+
+    this.sprite = scene.add.image(this.x, this.y, 'ball').setDepth(10);
+    this.shadow = scene.add.image(this.x, this.y + 8, 'ball_shadow').setDepth(5);
+    this.sprite.setVisible(false);
+    this.shadow.setVisible(false);
+
+    // Trail graphics
+    this.trailGfx = scene.add.graphics().setDepth(9);
+  }
+
+  launch(fromX, fromY, toX, toY, speed, type='normal', shooter=1) {
+    this.x = fromX;
+    this.y = fromY;
+    this.z = 5;
+    this.bounces = 0;
+    this.inPlay = true;
+    this.lastHitter = shooter;
+    this.bouncePlayer = null;
+    this.trail = [];
+    this.sprite.setVisible(true);
+    this.shadow.setVisible(true);
+
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const t = dist / speed; // time of flight estimate
+
+    this.vx = dx / t;
+    this.vy = dy / t;
+
+    // Arc based on shot type
+    switch (type) {
+      case 'lob':
+        this.vz = 420;
+        this.spin = -0.15;
+        break;
+      case 'topspin':
+        this.vz = 220;
+        this.spin = 0.25;
+        break;
+      case 'slice':
+        this.vz = 180;
+        this.spin = -0.2;
+        break;
+      case 'smash':
+        this.vz = 80;
+        this.spin = 0.3;
+        this.vx *= 1.4;
+        this.vy *= 1.4;
+        break;
+      case 'drop':
+        this.vz = 260;
+        this.vx *= 0.5;
+        this.vy *= 0.5;
+        this.spin = -0.3;
+        break;
+      default:
+        this.vz = 200;
+        this.spin = 0.1;
+    }
+
+    synth.ballHit(speed / 400);
+  }
+
+  update(dt) {
+    if (!this.inPlay) return;
+
+    // Physics
+    this.vz -= GRAVITY * dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.z += this.vz * dt;
+    this.vx += this.spin * this.vy * dt * 0.5;
+
+    // Bounce
+    if (this.z <= 0) {
+      this.z = 0;
+      if (Math.abs(this.vz) > 30) {
+        this.vz = -this.vz * BOUNCE_DAMP;
+        this.vx *= (0.85 + this.spin * 0.1);
+        this.vy *= (0.85 + this.spin * 0.1);
+        this.bounces++;
+        synth.bounce();
+        this.scene.cameras.main.shake(60, 0.003);
+        // Determine bounce side
+        if (this.y < NET_Y) this.bouncePlayer = 1;
+        else this.bouncePlayer = 2;
+        // Emit bounce particles
+        this.scene.emitBounce(this.x, this.y);
+      } else {
+        this.vz = 0;
+      }
+    }
+
+    // Trail
+    this.trail.push({ x: this.x, y: this.y - this.z * 0.3, alpha: 0.7 });
+    if (this.trail.length > 12) this.trail.shift();
+
+    // Update sprite position (z affects visual y)
+    const visY = this.y - this.z * 0.3;
+    this.sprite.setPosition(this.x, visY);
+    this.shadow.setPosition(this.x, this.y + 4);
+
+    const scale = 0.7 + this.z * 0.005;
+    this.sprite.setScale(Math.min(scale, 1.5));
+    this.shadow.setAlpha(Math.max(0.1, 0.4 - this.z * 0.004));
+
+    // Draw trail
+    this.trailGfx.clear();
+    this.trail.forEach((p, i) => {
+      const a = (i / this.trail.length) * 0.5;
+      const r = 3 * (i / this.trail.length);
+      this.trailGfx.fillStyle(0xffee44, a);
+      this.trailGfx.fillCircle(p.x, p.y, r);
+    });
+  }
+
+  hide() {
+    this.inPlay = false;
+    this.sprite.setVisible(false);
+    this.shadow.setVisible(false);
+    this.trailGfx.clear();
+    this.trail = [];
+  }
+
+  isOutOfBounds() {
+    return this.x < COURT_LEFT - 20 || this.x > COURT_RIGHT + 20 ||
+           this.y < COURT_TOP  - 30 || this.y > COURT_BOTTOM + 30;
+  }
+
+  crossedNet() {
+    // Check if ball crossed net
+    return (this.lastHitter === 1 && this.y < NET_Y && this.vy < 0) ||
+           (this.lastHitter === 2 && this.y > NET_Y && this.vy > 0);
+  }
+}
+
+// ─── PLAYER ──────────────────────────────────────────────────
+class Player {
+  constructor(scene, id, x, y, isHuman=true) {
+    this.scene = scene;
+    this.id = id;
+    this.isHuman = isHuman;
+    this.x = x;
+    this.y = y;
+    this.vx = 0;
+    this.vy = 0;
+    this.speed = 200;
+    this.state = 'idle'; // idle, moving, serving, hitting, celebrating
+    this.hitCooldown = 0;
+    this.serveCooldown = 0;
+    this.name = id === 1 ? 'Player 1' : 'Player 2';
+    this.score = 0;
+    this.games = 0;
+    this.sets = 0;
+    this.isServing = false;
+    this.canHit = true;
+    this.reachRange = 60;
+    this.shotPower = 0;
+    this.charging = false;
+
+    this.shadow = scene.add.image(x, y + 24, 'player_shadow').setDepth(4);
+    this.sprite = scene.add.image(x, y, id === 1 ? 'player1' : 'player2').setDepth(6);
+
+    // Bounce animation tween ref
+    this.bounceTween = null;
+  }
+
+  setName(n) { this.name = n; }
+
+  getBounds() {
+    return new Phaser.Geom.Rectangle(this.x - 18, this.y - 28, 36, 56);
+  }
+
+  canReachBall(ball) {
+    const dx = ball.x - this.x;
+    const dy = ball.y - this.y;
+    return Math.sqrt(dx*dx + dy*dy) < this.reachRange && ball.z < 80;
+  }
+
+  move(dx, dy, dt) {
+    this.vx = dx * this.speed;
+    this.vy = dy * this.speed;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    // Court boundary (per-player half)
+    const minY = this.id === 1 ? NET_Y + 10 : COURT_TOP + 5;
+    const maxY = this.id === 1 ? COURT_BOTTOM - 5 : NET_Y - 10;
+    this.x = Phaser.Math.Clamp(this.x, COURT_LEFT + 18, COURT_RIGHT - 18);
+    this.y = Phaser.Math.Clamp(this.y, minY, maxY);
+  }
+
+  update(dt) {
+    if (this.hitCooldown > 0) this.hitCooldown -= dt;
+    if (this.serveCooldown > 0) this.serveCooldown -= dt;
+
+    // Slight idle bob
+    const bob = Math.sin(this.scene.time.now / 300) * 1.5;
+    this.sprite.setPosition(this.x, this.y + bob);
+    this.shadow.setPosition(this.x, this.y + 26);
+
+    // Flip based on movement
+    if (this.vx !== 0) this.sprite.setFlipX(this.vx < 0);
+  }
+
+  hit(ball, type='normal', targetX, targetY) {
+    if (this.hitCooldown > 0) return false;
+    if (!this.canReachBall(ball)) return false;
+    this.hitCooldown = 0.5;
+
+    // Determine target
+    const tx = targetX ?? Phaser.Math.Between(COURT_LEFT + 30, COURT_RIGHT - 30);
+    const ty = targetY ?? (this.id === 1 ? Phaser.Math.Between(COURT_TOP + 20, NET_Y - 20)
+                                         : Phaser.Math.Between(NET_Y + 20, COURT_BOTTOM - 20));
+
+    const power = 280 + Math.random() * 120;
+    ball.launch(this.x, this.y, tx, ty, power, type, this.id);
+
+    // Visual hit flash
+    this.scene.tweens.add({
+      targets: this.sprite,
+      scaleX: 1.3, scaleY: 0.8,
+      duration: 80,
+      yoyo: true
+    });
+    return true;
+  }
+}
+
+// ─── AI CONTROLLER ───────────────────────────────────────────
+class AIController {
+  constructor(difficulty='medium') {
+    this.difficulty = difficulty;
+    this.reactionDelay = 0;
+    this.targetX = 0;
+    this.targetY = 0;
+    this.errorX = 0;
+    this.errorY = 0;
+    this.nextErrorTime = 0;
+    this.shotType = 'normal';
+
+    const cfg = {
+      easy:    { speed: 0.45, error: 55, hitRange: 80, delay: 0.4 },
+      medium:  { speed: 0.70, error: 30, hitRange: 65, delay: 0.2 },
+      hard:    { speed: 0.88, error: 14, hitRange: 55, delay: 0.08 },
+      extreme: { speed: 1.00, error: 4,  hitRange: 45, delay: 0.00 },
+    };
+    this.cfg = cfg[difficulty] || cfg.medium;
+  }
+
+  predict(ball) {
+    // Predict where ball will be when it reaches AI side (y < NET_Y)
+    if (ball.vy >= 0) return { x: ball.x, y: ball.y };
+    const t = (NET_Y - ball.y) / -ball.vy;
+    return {
+      x: ball.x + ball.vx * t,
+      y: ball.y + ball.vy * t
+    };
+  }
+
+  update(player, ball, dt, time) {
+    // Generate error periodically
+    if (time > this.nextErrorTime) {
+      this.errorX = (Math.random() - 0.5) * this.cfg.error;
+      this.errorY = (Math.random() - 0.5) * this.cfg.error * 0.5;
+      this.nextErrorTime = time + 700 + Math.random() * 1400;
+    }
+
+    let targetX, targetY;
+    // Ball coming toward AI side (y < NET_Y means player 2 side)
+    if (ball.inPlay && ball.y < NET_Y + 100 && ball.lastHitter !== player.id) {
+      const pred = this.predict(ball);
+      targetX = pred.x + this.errorX;
+      targetY = COURT_TOP + 70 + this.errorY;
+    } else {
+      // Return to base position
+      targetX = COURT_MID_X + this.errorX * 0.3;
+      targetY = COURT_TOP + 70;
+    }
+
+    targetX = Phaser.Math.Clamp(targetX, COURT_LEFT + 22, COURT_RIGHT - 22);
+    targetY = Phaser.Math.Clamp(targetY, COURT_TOP + 10, NET_Y - 12);
+
+    const dx = targetX - player.x;
+    const dy = targetY - player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 10) {
+      const spd = this.cfg.speed;
+      player.move((dx / dist) * spd, (dy / dist) * spd, dt);
+    } else {
+      player.move(0, 0, dt);
+    }
+
+    // Try to hit ball when close enough
+    if (ball.inPlay && ball.lastHitter !== player.id && player.canReachBall(ball)) {
+      // AI shot variety based on difficulty
+      let type;
+      const r = Math.random();
+      if (this.difficulty === 'easy')    type = r < 0.7 ? 'normal' : 'topspin';
+      else if (this.difficulty === 'medium') type = ['normal', 'topspin', 'slice'][Math.floor(r * 3)];
+      else type = ['normal', 'topspin', 'slice', 'lob', 'smash'][Math.floor(r * 5)];
+
+      // AI aims: harder AIs aim corners
+      let tx, ty;
+      if (this.difficulty === 'extreme') {
+        const corner = Math.random() > 0.5;
+        tx = corner ? COURT_LEFT + 25 : COURT_RIGHT - 25;
+        ty = COURT_BOTTOM - 30;
+      } else {
+        tx = Phaser.Math.Between(COURT_LEFT + 35, COURT_RIGHT - 35) + this.errorX;
+        ty = Phaser.Math.Between(NET_Y + 25, COURT_BOTTOM - 25) + this.errorY;
+      }
+      player.hit(ball, type, tx, ty);
+    }
+  }
+}
+
+// ─── VIRTUAL JOYSTICK ────────────────────────────────────────
+class VirtualJoystick {
+  constructor(scene, baseX, baseY) {
+    this.scene = scene;
+    this.baseX = baseX;
+    this.baseY = baseY;
+    this.dx = 0;
+    this.dy = 0;
+    this.active = false;
+    this.pointerId = null;
+    this.radius = 55;
+
+    this.base  = scene.add.image(baseX, baseY, 'joystick_base').setDepth(30).setAlpha(0.7);
+    this.thumb = scene.add.image(baseX, baseY, 'joystick_thumb').setDepth(31).setAlpha(0.9);
+  }
+
+  handlePointer(pointer, down) {
+    if (down) {
+      if (this.pointerId !== null) return;
+      const dx = pointer.x - this.baseX;
+      const dy = pointer.y - this.baseY;
+      if (Math.sqrt(dx*dx+dy*dy) < this.radius + 40) {
+        this.active = true;
+        this.pointerId = pointer.id;
+        this._update(pointer.x, pointer.y);
+      }
+    } else {
+      if (pointer.id === this.pointerId) {
+        this.active = false;
+        this.pointerId = null;
+        this.dx = 0;
+        this.dy = 0;
+        this.thumb.setPosition(this.baseX, this.baseY);
+      }
+    }
+  }
+
+  handleMove(pointer) {
+    if (pointer.id !== this.pointerId) return;
+    this._update(pointer.x, pointer.y);
+  }
+
+  _update(px, py) {
+    let dx = px - this.baseX;
+    let dy = py - this.baseY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > this.radius) {
+      dx = (dx / dist) * this.radius;
+      dy = (dy / dist) * this.radius;
+    }
+    this.dx = dx / this.radius;
+    this.dy = dy / this.radius;
+    this.thumb.setPosition(this.baseX + dx, this.baseY + dy);
+  }
+
+  destroy() {
+    this.base.destroy();
+    this.thumb.destroy();
+  }
+}
+
+// ─── SCORE SYSTEM ────────────────────────────────────────────
+const TENNIS_POINTS = ['0', '15', '30', '40'];
+class ScoreSystem {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.points = [0, 0];   // current game points
+    this.games  = [0, 0];   // current set games
+    this.sets   = [0, 0];   // sets won
+    this.deuce  = false;
+    this.advantage = null; // 1 or 2
+    this.currentSet = 1;
+    this.setsToWin = 2;
+    this.matchOver = false;
+    this.winner = null;
+  }
+
+  pointWon(player) { // player = 1 or 2
+    const p = player - 1;
+    const o = 1 - p;
+
+    if (this.deuce) {
+      if (this.advantage === player) {
+        this._gameWon(player);
+        this.deuce = false;
+        this.advantage = null;
+      } else if (this.advantage === null) {
+        this.advantage = player;
+      } else {
+        this.advantage = null; // back to deuce
+      }
+    } else {
+      this.points[p]++;
+      if (this.points[p] >= 4) {
+        if (this.points[o] >= 3) {
+          // Deuce!
+          this.deuce = true;
+          this.points = [3, 3];
+          this.advantage = null;
+        } else if (this.points[p] - this.points[o] >= 2 || this.points[o] < 3) {
+          this._gameWon(player);
+        }
+      }
+    }
+  }
+
+  _gameWon(player) {
+    this.points = [0, 0];
+    this.deuce = false;
+    this.advantage = null;
+    const p = player - 1, o = 1 - p;
+    this.games[p]++;
+    // Tiebreak at 6-6; or win by 2
+    if (this.games[p] >= 6 && this.games[p] - this.games[o] >= 2) {
+      this._setWon(player);
+    } else if (this.games[p] === 7) {
+      this._setWon(player);
+    }
+  }
+
+  _setWon(player) {
+    this.games = [0, 0];
+    const p = player - 1;
+    this.sets[p]++;
+    this.currentSet++;
+    if (this.sets[p] >= this.setsToWin) {
+      this.matchOver = true;
+      this.winner = player;
+    }
+  }
+
+  displayPoints(player) {
+    const p = player - 1;
+    if (this.deuce) return this.advantage === player ? 'AD' : (this.advantage ? '-' : 'DUC');
+    return TENNIS_POINTS[this.points[p]] ?? '0';
+  }
+
+  displayGames(player) { return this.games[player - 1]; }
+  displaySets(player) { return this.sets[player - 1]; }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: BOOT
+// ═══════════════════════════════════════════════════════════
+class BootScene extends Phaser.Scene {
+  constructor() { super('BootScene'); }
+  preload() {}
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+
+    // Loading splash
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0a0f1e, 1);
+    bg.fillRect(0, 0, w, h);
+
+    // Animated court lines
+    const courtG = this.add.graphics();
+    courtG.lineStyle(2, 0x1a3aff, 0.3);
+    for (let i = 0; i < 8; i++) {
+      courtG.beginPath();
+      courtG.moveTo(0, i * 110);
+      courtG.lineTo(w, i * 110);
+      courtG.strokePath();
+    }
+
+    this.add.text(w/2, h/2 - 80, '🎾', { fontSize: '64px' }).setOrigin(0.5);
+    this.add.text(w/2, h/2, 'POCKET TENNIS LEAGUE', {
+      fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#1a3aff', strokeThickness: 3
+    }).setOrigin(0.5);
+
+    const loadBar = this.add.graphics();
+    const loadBg  = this.add.graphics();
+    loadBg.fillStyle(0x1a2244, 1);
+    loadBg.fillRoundedRect(w/2 - 120, h/2 + 60, 240, 16, 8);
+    loadBar.fillStyle(0x1a6bff, 1);
+    loadBar.fillRoundedRect(w/2 - 120, h/2 + 60, 0, 16, 8);
+
+    const loadText = this.add.text(w/2, h/2 + 95, 'Generating assets...', {
+      fontSize: '12px', color: '#4466aa'
+    }).setOrigin(0.5);
+
+    // Generate assets progressively
+    let progress = 0;
+    const steps = [
+      () => { AssetGen.generateAll(this); },
+      () => { synth.init(); },
+    ];
+
+    const runStep = (i) => {
+      if (i >= steps.length) {
+        // Done
+        loadBar.clear();
+        loadBar.fillStyle(0x1a6bff, 1);
+        loadBar.fillRoundedRect(w/2 - 120, h/2 + 60, 240, 16, 8);
+        loadText.setText('Ready! Tap to start.');
+        this.add.text(w/2, h/2 + 130, 'TAP ANYWHERE', {
+          fontSize: '14px', fontStyle: 'bold', color: '#ffd700',
+          stroke: '#000', strokeThickness: 2
+        }).setOrigin(0.5);
+        this.tweens.add({ targets: this.children.getAll().slice(-1)[0], alpha: 0.2, duration: 500, yoyo: true, repeat: -1 });
+        this.input.once('pointerdown', () => {
+          synth.resume();
+          this.cameras.main.fade(300, 0, 0, 0);
+          this.time.delayedCall(320, () => this.scene.start('MenuScene'));
+        });
+        return;
+      }
+      steps[i]();
+      progress = (i + 1) / steps.length;
+      loadBar.clear();
+      loadBar.fillStyle(0x1a6bff, 1);
+      loadBar.fillRoundedRect(w/2 - 120, h/2 + 60, 240 * progress, 16, 8);
+      this.time.delayedCall(300, () => runStep(i + 1));
+    };
+    runStep(0);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: MENU
+// ═══════════════════════════════════════════════════════════
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+
+    // Background
+    this.add.image(w/2, h/2, 'logo_bg');
+
+    // Fade in
+    this.cameras.main.fadeIn(500, 0, 0, 0);
+
+    // Animated particles
+    this.particles = [];
+    for (let i = 0; i < 18; i++) {
+      const p = {
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vy: -(0.3 + Math.random() * 0.7),
+        alpha: 0.1 + Math.random() * 0.4,
+        r: 1 + Math.random() * 3
+      };
+      this.particles.push(p);
+    }
+    this.particleGfx = this.add.graphics().setDepth(1);
+
+    // Court preview
+    this.add.image(w/2, h/2 + 50, 'court_grass').setAlpha(0.12).setDepth(0);
+
+    // Logo
+    const logoBg = this.add.graphics().setDepth(2);
+    logoBg.fillStyle(0x0a1628, 0.8);
+    logoBg.fillRoundedRect(w/2 - 160, 60, 320, 130, 16);
+    logoBg.lineStyle(2, 0x2255cc, 0.6);
+    logoBg.strokeRoundedRect(w/2 - 160, 60, 320, 130, 16);
+
+    this.add.text(w/2, 95, '🎾', { fontSize: '48px' }).setOrigin(0.5).setDepth(3);
+    this.add.text(w/2, 142, 'POCKET TENNIS', {
+      fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#1a3aff', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(3);
+    this.add.text(w/2, 170, 'LEAGUE', {
+      fontSize: '20px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#aa7700', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(3);
+
+    // Version
+    this.add.text(w/2, 192, 'v1.0', {
+      fontSize: '10px', color: '#4466aa'
+    }).setOrigin(0.5).setDepth(3);
+
+    // Menu buttons
+    const btns = [
+      { label: '⚡ VS COMPUTER',   scene: 'DifficultyScene', color: '#1a6bff' },
+      { label: '👥 VS PLAYER',     scene: 'MatchScene',    color: '#22aa55', mode: 'hvh' },
+      { label: '🏆 LEAGUE MODE',   scene: 'LeagueScene',   color: '#cc8800' },
+      { label: '🎯 TRAINING',      scene: 'TrainingScene', color: '#9933cc' },
+    ];
+
+    btns.forEach((b, i) => {
+      const by = 240 + i * 72;
+      const btn = this.add.image(w/2, by, 'btn_primary').setDepth(3).setInteractive({ useHandCursor: true });
+      const bgG = this.add.graphics().setDepth(3);
+      bgG.fillStyle(Phaser.Display.Color.HexStringToColor(b.color).color, 1);
+      bgG.fillRoundedRect(w/2 - 110, by - 27, 220, 54, 14);
+      bgG.lineStyle(2, 0x88aaff, 0.4);
+      bgG.strokeRoundedRect(w/2 - 110, by - 27, 220, 54, 14);
+
+      this.add.text(w/2, by, b.label, {
+        fontSize: '17px', fontStyle: 'bold', color: '#ffffff',
+        stroke: '#00000088', strokeThickness: 2
+      }).setOrigin(0.5).setDepth(4);
+
+      // Hit zone
+      const zone = this.add.zone(w/2, by, 220, 54).setInteractive({ useHandCursor: true }).setDepth(5);
+      zone.on('pointerdown', () => {
+        synth.resume();
+        synth.menuTap();
+        this.cameras.main.shake(80, 0.005);
+        this.time.delayedCall(120, () => {
+          if (b.scene === 'DifficultyScene') {
+            this.scene.start('DifficultyScene');
+          } else if (b.mode === 'hvh') {
+            this.scene.start('MatchScene', { mode: 'hvh', court: 'grass', difficulty: 'medium' });
+          } else {
+            this.scene.start(b.scene);
+          }
+        });
+      });
+      zone.on('pointerover', () => { bgG.setAlpha(0.8); });
+      zone.on('pointerout',  () => { bgG.setAlpha(1); });
+    });
+
+    // Settings row
+    const settingsY = h - 55;
+    const courts = [
+      { name: 'GRASS', key: 'grass', color: '#1d6619' },
+      { name: 'CLAY',  key: 'clay',  color: '#c04828' },
+      { name: 'HARD',  key: 'hard',  color: '#2a5080' },
+    ];
+    this.selectedCourt = 'grass';
+
+    this.add.text(w/2, settingsY - 30, 'SELECT COURT', {
+      fontSize: '10px', color: '#8899bb'
+    }).setOrigin(0.5).setDepth(3);
+
+    courts.forEach((c, i) => {
+      const cx = w/2 - 70 + i * 70;
+      const cg = this.add.graphics().setDepth(3);
+      this._drawCourtBtn(cg, cx, settingsY, c, i === 0);
+
+      const cz = this.add.zone(cx, settingsY, 60, 30).setInteractive({ useHandCursor: true }).setDepth(5);
+      cz.on('pointerdown', () => {
+        synth.menuTap();
+        this.selectedCourt = c.key;
+        courts.forEach((cc, ii) => {
+          // re-draw all
+        });
+        this.registry.set('selectedCourt', c.key);
+      });
+    });
+
+    this.registry.set('selectedCourt', 'grass');
+
+    // Animated ball
+    this.ballGfx = this.add.graphics().setDepth(5);
+    this.ballAngle = 0;
+
+    // Tennis rackets deco
+    const rkt = this.add.image(60, h - 120, 'racket').setDepth(2).setAlpha(0.25).setAngle(-30);
+    const rkt2 = this.add.image(w - 60, h - 120, 'racket').setDepth(2).setAlpha(0.25).setAngle(30).setFlipX(true);
+
+    this.input.on('pointerdown', () => { synth.resume(); });
+  }
+
+  _drawCourtBtn(g, x, y, c, selected) {
+    g.clear();
+    const col = Phaser.Display.Color.HexStringToColor(c.color).color;
+    g.fillStyle(col, selected ? 1 : 0.5);
+    g.fillRoundedRect(x - 28, y - 14, 56, 28, 6);
+    if (selected) {
+      g.lineStyle(2, 0xffffff, 0.8);
+      g.strokeRoundedRect(x - 28, y - 14, 56, 28, 6);
+    }
+    this.add.text(x, y, c.name, {
+      fontSize: '9px', fontStyle: 'bold', color: selected ? '#ffffff' : '#aaaaaa'
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  update(t) {
+    // Animate particles
+    this.particleGfx.clear();
+    this.particles.forEach(p => {
+      p.y += p.vy;
+      if (p.y < -10) p.y = this.scale.height + 10;
+      this.particleGfx.fillStyle(0x3366ff, p.alpha);
+      this.particleGfx.fillCircle(p.x, p.y, p.r);
+    });
+
+    // Animate deco ball
+    this.ballAngle += 0.02;
+    const bx = this.scale.width / 2 + Math.cos(this.ballAngle) * 130;
+    const by = 530 + Math.sin(this.ballAngle * 2) * 20;
+    this.ballGfx.clear();
+    this.ballGfx.fillStyle(0xf5e642, 0.15);
+    this.ballGfx.fillCircle(bx, by, 12);
+    this.ballGfx.lineStyle(1, 0xf5e642, 0.4);
+    this.ballGfx.strokeCircle(bx, by, 12);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: DIFFICULTY SELECT
+// ═══════════════════════════════════════════════════════════
+class DifficultyScene extends Phaser.Scene {
+  constructor() { super('DifficultyScene'); }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    this.add.image(w/2, h/2, 'logo_bg');
+    this.add.image(w/2, h/2, 'court_grass').setAlpha(0.1);
+
+    this.add.text(w/2, 80, '🎾', { fontSize: '36px' }).setOrigin(0.5);
+    this.add.text(w/2, 130, 'CHOOSE DIFFICULTY', {
+      fontSize: '22px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#1a3aff', strokeThickness: 3
+    }).setOrigin(0.5);
+
+    const diffs = [
+      { key: 'easy',    label: '😊 EASY',    color: '#22aa55', desc: 'Perfect for beginners' },
+      { key: 'medium',  label: '😐 MEDIUM',  color: '#ccaa00', desc: 'Balanced challenge' },
+      { key: 'hard',    label: '😤 HARD',    color: '#cc5500', desc: 'Fast & unpredictable' },
+      { key: 'extreme', label: '💀 EXTREME', color: '#cc1133', desc: 'No mercy mode' },
+    ];
+
+    const courts = ['grass', 'clay', 'hard'];
+    this.selectedCourt = this.registry.get('selectedCourt') || 'grass';
+    this.selectedDiff = 'medium';
+
+    diffs.forEach((d, i) => {
+      const by = 210 + i * 108;
+      const col = Phaser.Display.Color.HexStringToColor(d.color).color;
+      const g = this.add.graphics().setDepth(2);
+      g.fillStyle(col, 0.85);
+      g.fillRoundedRect(w/2 - 140, by - 35, 280, 70, 14);
+      g.lineStyle(2, 0xffffff, 0.25);
+      g.strokeRoundedRect(w/2 - 140, by - 35, 280, 70, 14);
+
+      this.add.text(w/2, by - 10, d.label, {
+        fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
+        stroke: '#00000066', strokeThickness: 2
+      }).setOrigin(0.5).setDepth(3);
+
+      this.add.text(w/2, by + 16, d.desc, {
+        fontSize: '12px', color: '#ffffffaa'
+      }).setOrigin(0.5).setDepth(3);
+
+      const zone = this.add.zone(w/2, by, 280, 70).setInteractive({ useHandCursor: true }).setDepth(5);
+      zone.on('pointerdown', () => {
+        synth.menuTap();
+        this.cameras.main.shake(60, 0.005);
+        this.time.delayedCall(100, () => {
+          this.scene.start('MatchScene', {
+            mode: 'pvc', difficulty: d.key,
+            court: this.selectedCourt
+          });
+        });
+      });
+      zone.on('pointerover', () => { g.setAlpha(0.7); });
+      zone.on('pointerout',  () => { g.setAlpha(1); });
+    });
+
+    // Back button
+    const backG = this.add.graphics().setDepth(2);
+    backG.fillStyle(0x222244, 0.9);
+    backG.fillRoundedRect(w/2 - 60, h - 75, 120, 44, 10);
+    this.add.text(w/2, h - 53, '← BACK', {
+      fontSize: '15px', color: '#aabbff'
+    }).setOrigin(0.5).setDepth(3);
+    const backZ = this.add.zone(w/2, h - 53, 120, 44).setInteractive({ useHandCursor: true }).setDepth(5);
+    backZ.on('pointerdown', () => {
+      synth.menuTap();
+      this.scene.start('MenuScene');
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: MATCH
+// ═══════════════════════════════════════════════════════════
+class MatchScene extends Phaser.Scene {
+  constructor() { super('MatchScene'); }
+
+  init(data) {
+    this.mode       = data.mode || 'pvc';
+    this.difficulty = data.difficulty || 'medium';
+    this.courtType  = data.court || this.registry.get('selectedCourt') || 'grass';
+    this.leagueCode = data.leagueCode || null;
+    this.p1name     = data.p1name || 'Player 1';
+    this.p2name     = data.p2name || (this.mode === 'pvc' ? 'CPU' : 'Player 2');
+  }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    this.isPaused = false;
+    this.gameOver = false;
+    this.rallyCount = 0;
+    this.servingPlayer = 1;
+    this.waitingForServe = true;
+    this.serveTimer = 0;
+    this.pointDelay = 0;
+    this.inPoint = false;
+    this.smashZoom = false;
+
+    // Fade in
+    this.cameras.main.fadeIn(400, 0, 0, 0);
+
+    // Court
+    const courtKey = 'court_' + this.courtType;
+    this.add.image(w/2, h/2, courtKey).setDepth(0);
+
+    // Stadium seating (top + bottom)
+    this.add.image(w/2, COURT_TOP - 20, 'crowd').setDepth(1).setAlpha(0.85);
+    this.add.image(w/2, COURT_BOTTOM + 20, 'crowd').setDepth(1).setAlpha(0.85).setFlipY(true);
+
+    // Stadium walls
+    const wallG = this.add.graphics().setDepth(0);
+    wallG.fillStyle(0x0a1020, 1);
+    wallG.fillRect(0, 0, w, COURT_TOP - 38);
+    wallG.fillRect(0, COURT_BOTTOM + 38, w, h - COURT_BOTTOM - 38);
+    wallG.fillRect(0, COURT_TOP - 38, COURT_LEFT - 5, COURT_BOTTOM - COURT_TOP + 76);
+    wallG.fillRect(COURT_RIGHT + 5, COURT_TOP - 38, w - COURT_RIGHT - 5, COURT_BOTTOM - COURT_TOP + 76);
+
+    // Net
+    this.net = this.add.image(w/2, NET_Y + 4, 'net').setDepth(8);
+
+    // Score system
+    this.score = new ScoreSystem();
+
+    // Players
+    this.player1 = new Player(this, 1, COURT_MID_X, COURT_BOTTOM - 80, true);
+    this.player1.setName(this.p1name);
+    this.player2 = new Player(this, 2, COURT_MID_X, COURT_TOP + 80,
+      this.mode === 'hvh');
+    this.player2.setName(this.p2name);
+
+    // AI
+    if (this.mode === 'pvc') {
+      this.ai = new AIController(this.difficulty);
+    }
+
+    // Ball
+    this.ball = new TennisBall(this);
+    this.emitterGfx = this.add.graphics().setDepth(11);
+
+    // Bounce particles pool
+    this.bounceParticles = [];
+
+    // Controls
+    this._setupControls(w, h);
+
+    // Score UI
+    this._createScoreUI(w);
+
+    // Set player 1 to serve
+    this._setupServe(1);
+
+    // Pause button
+    const pauseG = this.add.graphics().setDepth(20);
+    pauseG.fillStyle(0x000000, 0.5);
+    pauseG.fillRoundedRect(w - 50, 10, 40, 35, 8);
+    this.add.text(w - 30, 27, '⏸', { fontSize: '18px' }).setOrigin(0.5).setDepth(21);
+    const pauseZ = this.add.zone(w - 30, 27, 40, 35).setInteractive().setDepth(22);
+    pauseZ.on('pointerdown', () => this._togglePause());
+
+    // Set timer display
+    this.matchTimer = 0;
+    this.timerText = this.add.text(w/2, 14, '00:00', {
+      fontSize: '11px', color: '#8899bb'
+    }).setOrigin(0.5).setDepth(20);
+  }
+
+  _setupControls(w, h) {
+    const isHvH = this.mode === 'hvh';
+
+    // Player 1 joystick (bottom left)
+    this.joy1 = new VirtualJoystick(this, 75, h - 120);
+
+    // Player 1 action buttons
+    this._createActionButtons(w, h, 1);
+
+    if (isHvH) {
+      // Player 2 joystick (top left, flipped)
+      this.joy2 = new VirtualJoystick(this, 75, 120);
+      this._createActionButtons(w, h, 2);
+    }
+
+    // Input handling
+    this.input.on('pointerdown', (p) => {
+      synth.resume();
+      this.joy1.handlePointer(p, true);
+      if (isHvH && this.joy2) this.joy2.handlePointer(p, true);
+      this._handleActionPress(p);
+
+        // Serve tap — only if pointer is in lower half (player 1 side)
+      if (this.waitingForServe && this.servingPlayer === 1 && p.y > this.scale.height * 0.5) {
+        this._doServe(1);
+      }
+      if (this.mode === 'hvh' && this.waitingForServe && this.servingPlayer === 2 && p.y < this.scale.height * 0.5) {
+        this._doServe(2);
+      }
+    });
+    this.input.on('pointerup', (p) => {
+      this.joy1.handlePointer(p, false);
+      if (isHvH && this.joy2) this.joy2.handlePointer(p, false);
+      this._handleActionRelease(p);
+    });
+    this.input.on('pointermove', (p) => {
+      this.joy1.handleMove(p);
+      if (isHvH && this.joy2) this.joy2.handleMove(p);
+    });
+
+    // Swipe detection
+    this.swipeStart = null;
+    this.input.on('pointerdown', (p) => { this.swipeStart = { x: p.x, y: p.y }; });
+    this.input.on('pointerup',   (p) => {
+      if (!this.swipeStart) return;
+      const dx = p.x - this.swipeStart.x;
+      const dy = p.y - this.swipeStart.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist > 40) {
+        if (dy < -30) this.pendingShot = 'lob';
+        else if (dy > 30) this.pendingShot = 'slice';
+        else this.pendingShot = 'topspin';
+      }
+      this.swipeStart = null;
+    });
+
+    this.pendingShot = 'normal';
+    this.hitPressed  = false;
+    this.lobPressed  = false;
+    this.spinPressed = false;
+    this.smashPressed = false;
+
+    this.actionPointers = {};
+  }
+
+  _createActionButtons(w, h, playerNum) {
+    const isP2 = playerNum === 2;
+    const baseY = isP2 ? 150 : h - 120;
+    const rightX = w - 70;
+
+    const buttons = [
+      { key: 'hit',   tex: 'btn_hit',   x: rightX,       y: baseY,       label: 'HIT',   size: 80 },
+      { key: 'lob',   tex: 'btn_lob',   x: rightX - 65,  y: baseY - 50,  label: 'LOB',   size: 60 },
+      { key: 'spin',  tex: 'btn_spin',  x: rightX + 5,   y: baseY - 60,  label: 'SPIN',  size: 60 },
+      { key: 'smash', tex: 'btn_smash', x: rightX - 65,  y: baseY + 50,  label: 'SMSH',  size: 60 },
+    ];
+
+    buttons.forEach(b => {
+      const img = this.add.image(b.x, b.y, b.tex).setDepth(30).setAlpha(0.8);
+      const txt = this.add.text(b.x, b.y, b.label, {
+        fontSize: b.key === 'hit' ? '12px' : '10px',
+        fontStyle: 'bold', color: '#ffffff'
+      }).setOrigin(0.5).setDepth(31);
+
+      const zone = this.add.zone(b.x, b.y, b.size, b.size).setInteractive().setDepth(32);
+      zone.on('pointerdown', (p) => {
+        synth.menuTap();
+        if (playerNum === 1) {
+          if (b.key === 'hit')   { this.hitPressed  = true; this._tryHit(1); }
+          if (b.key === 'lob')   { this.pendingShot = 'lob'; this._tryHit(1); }
+          if (b.key === 'spin')  { this.pendingShot = 'topspin'; this._tryHit(1); }
+          if (b.key === 'smash') { this.pendingShot = 'smash'; this._tryHit(1); }
+          if (this.waitingForServe && this.servingPlayer === 1) this._doServe(1);
+        } else {
+          if (b.key === 'hit')   { this._tryHit(2); }
+          if (b.key === 'lob')   { this.pendingShot = 'lob'; this._tryHit(2); }
+          if (b.key === 'spin')  { this.pendingShot = 'topspin'; this._tryHit(2); }
+          if (b.key === 'smash') { this.pendingShot = 'smash'; this._tryHit(2); }
+          if (this.waitingForServe && this.servingPlayer === 2) this._doServe(2);
+        }
+      });
+    });
+  }
+
+  _handleActionPress(p) {
+    // Additional tap-to-hit logic handled by button zones
+  }
+  _handleActionRelease(p) {
+    this.hitPressed = false;
+  }
+
+  _createScoreUI(w) {
+    // Score panel
+    this.scorePanelImg = this.add.image(w/2, 38, 'score_panel').setDepth(19);
+
+    // Player names
+    this.add.text(30, 15, '🎾', { fontSize: '13px' }).setDepth(20);
+    this.p1NameText = this.add.text(48, 15, this.player1.name.substring(0,10), {
+      fontSize: '11px', fontStyle: 'bold', color: '#88ccff'
+    }).setDepth(20);
+    this.p2NameText = this.add.text(48, 40, this.player2.name.substring(0,10), {
+      fontSize: '11px', fontStyle: 'bold', color: '#ff8888'
+    }).setDepth(20);
+
+    // Score
+    this.scoreText = this.add.text(w/2, 28, '0-0', {
+      fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(20);
+
+    this.gameText = this.add.text(w - 80, 28, 'G: 0-0', {
+      fontSize: '11px', color: '#aabbcc'
+    }).setOrigin(0.5).setDepth(20);
+
+    this.setText = this.add.text(w - 20, 28, 'S:0-0', {
+      fontSize: '11px', color: '#aabbcc'
+    }).setOrigin(1, 0.5).setDepth(20);
+
+    // Rally counter
+    this.rallyText = this.add.text(w/2, NET_Y - 16, '', {
+      fontSize: '12px', fontStyle: 'bold', color: '#ffd70088',
+      stroke: '#00000044', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(12).setVisible(false);
+
+    // Ball speed indicator
+    this.speedText = this.add.text(w/2, NET_Y + 16, '', {
+      fontSize: '10px', color: '#88aaff77'
+    }).setOrigin(0.5).setDepth(12);
+
+    // Point announcement
+    this.pointText = this.add.text(w/2, h/2 - 60, '', {
+      fontSize: '28px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+
+    // Serve indicator
+    this.serveText = this.add.text(w/2, h/2 + 60, 'TAP TO SERVE', {
+      fontSize: '16px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#000000', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({ targets: this.serveText, alpha: 0.2, duration: 600, yoyo: true, repeat: -1 });
+  }
+
+  _updateScoreUI() {
+    const s = this.score;
+    this.scoreText.setText(s.displayPoints(1) + ' - ' + s.displayPoints(2));
+    this.gameText.setText('G: ' + s.displayGames(1) + '-' + s.displayGames(2));
+    this.setText.setText('S:' + s.displaySets(1) + '-' + s.displaySets(2));
+  }
+
+  _setupServe(player) {
+    this.waitingForServe = true;
+    this.servingPlayer   = player;
+    this.inPoint = false;
+    this.ball.hide();
+    this.rallyCount = 0;
+
+    const p = player === 1 ? this.player1 : this.player2;
+    p.x = COURT_MID_X;
+    p.y = player === 1 ? COURT_BOTTOM - 70 : COURT_TOP + 70;
+
+    const serveHalf = player === 1 ? '(bottom)' : '(top)';
+    this.serveText.setText('P' + player + ' — TAP TO SERVE ' + serveHalf);
+    this.serveText.setVisible(true);
+  }
+
+  _doServe(player) {
+    if (!this.waitingForServe) return;
+    this.waitingForServe = false;
+    this.serveText.setVisible(false);
+    this.inPoint = true;
+
+    const p = player === 1 ? this.player1 : this.player2;
+    const targetX = Phaser.Math.Between(COURT_LEFT + 40, COURT_RIGHT - 40);
+    const targetY = player === 1 ?
+      Phaser.Math.Between(COURT_TOP + 30, NET_Y - 30) :
+      Phaser.Math.Between(NET_Y + 30, COURT_BOTTOM - 30);
+
+    synth.serve();
+    this.ball.launch(p.x, p.y, targetX, targetY, 320, 'topspin', player);
+    this.cameras.main.shake(100, 0.006);
+  }
+
+  _tryHit(player) {
+    if (this.waitingForServe) {
+      if (this.servingPlayer === player) this._doServe(player);
+      return;
+    }
+    if (!this.ball.inPlay) return;
+    const p = player === 1 ? this.player1 : this.player2;
+    if (this.ball.lastHitter === player) return; // can't hit own shot
+    if (p.hitCooldown > 0) return;
+
+    const shotType = this.pendingShot || 'normal';
+    this.pendingShot = 'normal';
+
+    // Target: opposite side
+    const tx = Phaser.Math.Between(COURT_LEFT + 30, COURT_RIGHT - 30);
+    const ty = player === 1 ?
+      Phaser.Math.Between(COURT_TOP + 20, NET_Y - 20) :
+      Phaser.Math.Between(NET_Y + 20, COURT_BOTTOM - 20);
+
+      if (p.hit(this.ball, shotType, tx, ty)) {
+        this.rallyCount++;
+        if (this.rallyText) {
+          this.rallyText.setVisible(this.rallyCount > 2);
+          const fire = this.rallyCount >= 10 ? ' 🔥🔥' : this.rallyCount >= 5 ? ' 🔥' : '';
+          this.rallyText.setText('RALLY: ' + this.rallyCount + fire);
+        }
+        // Show shot type label
+        const shotLabels = { normal:'HIT!', topspin:'TOPSPIN!', slice:'SLICE!', lob:'LOB!', smash:'SMASH!', drop:'DROP SHOT!' };
+        const label = this.add.text(p.x, p.y - 30, shotLabels[shotType] || 'HIT!', {
+          fontSize: shotType === 'smash' ? '18px' : '13px',
+          fontStyle: 'bold',
+          color: shotType === 'smash' ? '#ff4444' : shotType === 'lob' ? '#44ff88' : '#ffffff',
+          stroke: '#000000', strokeThickness: 2
+        }).setOrigin(0.5).setDepth(15);
+        this.tweens.add({ targets: label, y: p.y - 65, alpha: 0, duration: 700, ease: 'Cubic.Out',
+          onComplete: () => label.destroy() });
+
+        if (shotType === 'smash') {
+          this._doSmashZoom();
+        }
+        synth.crowd(Math.min(0.3 + this.rallyCount * 0.05, 1));
+      }
+  }
+
+  _doSmashZoom() {
+    this.cameras.main.zoomTo(1.15, 150);
+    this.time.delayedCall(300, () => {
+      this.cameras.main.zoomTo(1, 200);
+    });
+    this.cameras.main.shake(150, 0.01);
+  }
+
+  emitBounce(x, y) {
+    for (let i = 0; i < 6; i++) {
+      this.bounceParticles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 80,
+        vy: -40 - Math.random() * 60,
+        life: 0.5,
+        maxLife: 0.5,
+        r: 2 + Math.random() * 3,
+        color: this.courtType === 'clay' ? 0xc04828 : 0xf5e642
+      });
+    }
+  }
+
+  _updateParticles(dt) {
+    this.emitterGfx.clear();
+    this.bounceParticles = this.bounceParticles.filter(p => {
+      p.life -= dt;
+      if (p.life <= 0) return false;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 120 * dt;
+      const a = p.life / p.maxLife;
+      this.emitterGfx.fillStyle(p.color, a * 0.8);
+      this.emitterGfx.fillCircle(p.x, p.y, p.r * a);
+      return true;
+    });
+  }
+
+  _checkBallOut() {
+    const ball = this.ball;
+    if (!ball.inPlay) return;
+
+    // Net collision — ball must be at net height and moving into net zone
+    if (ball.z < 28 && ball.z >= 0 &&
+        Math.abs(ball.y - NET_Y) < 16 &&
+        ball.x > COURT_LEFT && ball.x < COURT_RIGHT) {
+      synth.netHit();
+      this.cameras.main.shake(80, 0.006);
+      this._announcePoint(ball.lastHitter === 1 ? 2 : 1, '🔴 NET!');
+      return;
+    }
+
+    // Out of bounds after bounce
+    if (ball.bounces > 0) {
+      const bouncer = ball.bouncePlayer;
+      if (!bouncer) return;
+
+      // Check if ball bounced out
+      if (ball.x < COURT_LEFT - 2 || ball.x > COURT_RIGHT + 2 ||
+          ball.y < COURT_TOP  - 2 || ball.y > COURT_BOTTOM + 2) {
+        const winner = bouncer === 1 ? 2 : 1;
+        this._announcePoint(winner, '🔴 OUT!');
+        return;
+      }
+
+      // Ball bounced on WRONG side (same side as hitter)
+      if (bouncer === ball.lastHitter) {
+        const winner = ball.lastHitter === 1 ? 2 : 1;
+        this._announcePoint(winner, '🔴 FAULT!');
+        return;
+      }
+
+      // Ball bounced TWICE on one side → other player wins point
+      if (ball.bounces >= 2) {
+        const winner = bouncer === 1 ? 2 : 1;
+        this._announcePoint(winner, '✅ WINNER!');
+        return;
+      }
+    }
+
+    // Ball escaped court entirely without bouncing
+    if (ball.isOutOfBounds() && ball.bounces === 0) {
+      const winner = ball.lastHitter === 1 ? 2 : 1;
+      this._announcePoint(winner, '🔴 LONG!');
+    }
+  }
+
+  _announcePoint(winner, reason) {
+    if (!this.inPoint) return;
+    this.inPoint = false;
+    this.ball.hide();
+    this.rallyCount = 0;
+    if (this.rallyText) this.rallyText.setVisible(false);
+
+    this.score.pointWon(winner);
+    this._updateScoreUI();
+    synth.point();
+    synth.crowd(0.8);
+
+    const msg = (winner === 1 ? '✅ ' + this.player1.name : '✅ ' + this.player2.name) + '\n' + reason;
+    this.pointText.setText(msg);
+    this.tweens.killTweensOf(this.pointText);
+    this.pointText.setAlpha(1).setScale(0.5);
+    this.tweens.add({
+      targets: this.pointText,
+      scaleX: 1, scaleY: 1, alpha: 1,
+      duration: 250, ease: 'Back.Out'
+    });
+    this.tweens.add({
+      targets: this.pointText, alpha: 0,
+      duration: 400, delay: 1200
+    });
+
+    if (this.score.matchOver) {
+      this.time.delayedCall(1600, () => this._endMatch());
+    } else {
+      this.time.delayedCall(1600, () => {
+        const nextServer = winner; // winner serves next
+        this._setupServe(nextServer);
+      });
+    }
+  }
+
+  _endMatch() {
+    synth.victory();
+    const winner = this.score.winner;
+    const winName = winner === 1 ? this.player1.name : this.player2.name;
+
+    // Celebration particles
+    for (let i = 0; i < 40; i++) {
+      this.time.delayedCall(i * 40, () => {
+        this.bounceParticles.push({
+          x: Phaser.Math.Between(50, this.scale.width - 50),
+          y: Phaser.Math.Between(100, 700),
+          vx: (Math.random() - 0.5) * 150,
+          vy: -100 - Math.random() * 200,
+          life: 1.5, maxLife: 1.5,
+          r: 4 + Math.random() * 6,
+          color: [0xffd700, 0xff3366, 0x33ffaa, 0x3366ff][Math.floor(Math.random() * 4)]
+        });
+      });
+    }
+
+    this.time.delayedCall(2000, () => {
+      this.scene.start('ResultScene', {
+        winner: winName,
+        winnerId: winner,
+        score: this.score,
+        mode: this.mode,
+        leagueCode: this.leagueCode,
+        p1name: this.player1.name,
+        p2name: this.player2.name,
+        court: this.courtType
+      });
+    });
+  }
+
+  _togglePause() {
+    this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      this._showPauseMenu();
+    } else {
+      this._hidePauseMenu();
+    }
+  }
+
+  _showPauseMenu() {
+    const w = this.scale.width, h = this.scale.height;
+    this.pauseGroup = this.add.group();
+    const overlay = this.add.graphics().setDepth(40);
+    overlay.fillStyle(0x000000, 0.7);
+    overlay.fillRect(0, 0, w, h);
+    this.pauseGroup.add(overlay);
+
+    const panel = this.add.graphics().setDepth(41);
+    panel.fillStyle(0x050d1a, 0.95);
+    panel.fillRoundedRect(w/2 - 130, h/2 - 120, 260, 240, 16);
+    panel.lineStyle(2, 0x2244aa, 0.7);
+    panel.strokeRoundedRect(w/2 - 130, h/2 - 120, 260, 240, 16);
+    this.pauseGroup.add(panel);
+
+    const title = this.add.text(w/2, h/2 - 90, '⏸ PAUSED', {
+      fontSize: '22px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(42);
+    this.pauseGroup.add(title);
+
+    const resumeG = this.add.graphics().setDepth(42);
+    resumeG.fillStyle(0x1a6bff, 1);
+    resumeG.fillRoundedRect(w/2 - 90, h/2 - 50, 180, 46, 10);
+    this.pauseGroup.add(resumeG);
+    const resumeT = this.add.text(w/2, h/2 - 27, '▶ RESUME', {
+      fontSize: '16px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(43);
+    this.pauseGroup.add(resumeT);
+    const resumeZ = this.add.zone(w/2, h/2 - 27, 180, 46).setInteractive().setDepth(44);
+    resumeZ.on('pointerdown', () => { this._togglePause(); });
+    this.pauseGroup.add(resumeZ);
+
+    const quitG = this.add.graphics().setDepth(42);
+    quitG.fillStyle(0xaa2233, 1);
+    quitG.fillRoundedRect(w/2 - 90, h/2 + 20, 180, 46, 10);
+    this.pauseGroup.add(quitG);
+    const quitT = this.add.text(w/2, h/2 + 43, '🏠 MENU', {
+      fontSize: '16px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(43);
+    this.pauseGroup.add(quitT);
+    const quitZ = this.add.zone(w/2, h/2 + 43, 180, 46).setInteractive().setDepth(44);
+    quitZ.on('pointerdown', () => { this.scene.start('MenuScene'); });
+    this.pauseGroup.add(quitZ);
+
+    const retryG = this.add.graphics().setDepth(42);
+    retryG.fillStyle(0x225533, 1);
+    retryG.fillRoundedRect(w/2 - 90, h/2 + 84, 180, 46, 10);
+    this.pauseGroup.add(retryG);
+    const retryT = this.add.text(w/2, h/2 + 107, '🔄 RETRY', {
+      fontSize: '16px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(43);
+    this.pauseGroup.add(retryT);
+    const retryZ = this.add.zone(w/2, h/2 + 107, 180, 46).setInteractive().setDepth(44);
+    retryZ.on('pointerdown', () => {
+      this.scene.restart({ mode: this.mode, difficulty: this.difficulty, court: this.courtType });
+    });
+    this.pauseGroup.add(retryZ);
+  }
+
+  _hidePauseMenu() {
+    if (this.pauseGroup) {
+      this.pauseGroup.clear(true, true);
+      this.pauseGroup = null;
+    }
+  }
+
+  update(time, delta) {
+    if (this.isPaused || this.gameOver) return;
+    const dt = delta / 1000;
+    this.matchTimer += dt;
+    const mm = Math.floor(this.matchTimer / 60);
+    const ss = Math.floor(this.matchTimer % 60);
+    this.timerText.setText(String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0'));
+
+    // AI (player 2 in PvC mode)
+    if (this.mode === 'pvc' && !this.waitingForServe && this.ball.inPlay) {
+      this.ai.update(this.player2, this.ball, dt, time);
+      // AI serve
+    }
+    if (this.mode === 'pvc' && this.waitingForServe && this.servingPlayer === 2) {
+      this.serveTimer += dt;
+      if (this.serveTimer > 1.2) {
+        this.serveTimer = 0;
+        this._doServe(2);
+      }
+    } else {
+      this.serveTimer = 0;
+    }
+
+    // Player 1 movement from joystick
+    if (this.joy1 && this.joy1.active) {
+      this.player1.move(this.joy1.dx, this.joy1.dy, dt);
+    }
+
+    // Player 2 movement (HvH)
+    if (this.mode === 'hvh' && this.joy2 && this.joy2.active) {
+      this.player2.move(this.joy2.dx, this.joy2.dy, dt);
+    }
+
+    this.player1.update(dt);
+    this.player2.update(dt);
+    this.ball.update(dt);
+
+    // Show ball speed
+    if (this.speedText && this.ball.inPlay) {
+      const spd = Math.round(Math.sqrt(this.ball.vx**2 + this.ball.vy**2) * 0.036); // approx km/h
+      this.speedText.setText(spd > 20 ? spd + ' km/h' : '');
+    }
+
+    this._updateParticles(dt);
+    this._checkBallOut();
+
+    // Auto-assist: gentle push toward ball if joystick is idle but player is near
+    if (this.ball.inPlay && !this.waitingForServe && this.joy1 && !this.joy1.active) {
+      const p1 = this.player1;
+      if (this.ball.lastHitter !== 1 && this.ball.y > NET_Y + 5) {
+        const dx = this.ball.x - p1.x;
+        const dy = this.ball.y - p1.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 100 && dist > 10) {
+          p1.move(dx / dist * 0.35, dy / dist * 0.35, dt);
+        }
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: RESULT
+// ═══════════════════════════════════════════════════════════
+class ResultScene extends Phaser.Scene {
+  constructor() { super('ResultScene'); }
+
+  init(data) {
+    this.winnerName = data.winner || 'Player';
+    this.winnerId   = data.winnerId || 1;
+    this.score      = data.score;
+    this.mode       = data.mode;
+    this.leagueCode = data.leagueCode;
+    this.p1name     = data.p1name || 'Player 1';
+    this.p2name     = data.p2name || 'Player 2';
+    this.court      = data.court || 'grass';
+  }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    const courtKey = 'court_' + this.court;
+
+    // Record league result
+    if (this.leagueCode && this.mode !== 'pvc') {
+      LeagueManager.recordResult(this.leagueCode, this.winnerName,
+        this.winnerId === 1 ? this.p2name : this.p1name);
+    }
+
+    this.add.image(w/2, h/2, courtKey).setAlpha(0.2);
+    this.add.image(w/2, h/2, 'logo_bg').setAlpha(0.85);
+
+    // Stars/confetti
+    this.confetti = [];
+    for (let i = 0; i < 35; i++) {
+      this.confetti.push({
+        x: Math.random() * w,
+        y: Math.random() * h - h,
+        vx: (Math.random() - 0.5) * 100,
+        vy: 60 + Math.random() * 120,
+        rot: Math.random() * 360,
+        rotV: (Math.random() - 0.5) * 180,
+        color: [0xffd700, 0xff3366, 0x33ffaa, 0x3366ff, 0xff8833][Math.floor(Math.random() * 5)],
+        w: 6 + Math.random() * 8,
+        h: 4 + Math.random() * 6
+      });
+    }
+    this.confGfx = this.add.graphics().setDepth(2);
+
+    // Trophy
+    this.add.text(w/2, 130, '🏆', { fontSize: '72px' }).setOrigin(0.5).setDepth(3);
+    this.tweens.add({ targets: this.children.getAll().slice(-1)[0], y: 125, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+
+    this.add.text(w/2, 220, 'MATCH WINNER!', {
+      fontSize: '24px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#aa7700', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(3);
+
+    this.add.text(w/2, 260, this.winnerName, {
+      fontSize: '30px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(3);
+
+    // Score breakdown
+    if (this.score) {
+      const s = this.score;
+      const scoreStr = s.displaySets(1) + ' - ' + s.displaySets(2) + ' SETS\n' +
+                       s.displayGames(1) + ' - ' + s.displayGames(2) + ' GAMES (FINAL)';
+      this.add.text(w/2, 320, scoreStr, {
+        fontSize: '15px', color: '#aabbcc', align: 'center'
+      }).setOrigin(0.5).setDepth(3);
+    }
+
+    // Player label
+    this.add.text(w/2, 380, (this.winnerId === 1 ? '🔵' : '🔴') + ' ' + this.winnerName + ' WINS!', {
+      fontSize: '18px', fontStyle: 'bold',
+      color: this.winnerId === 1 ? '#88ccff' : '#ff8888'
+    }).setOrigin(0.5).setDepth(3);
+
+    // Buttons
+    const btns = [
+      { label: '🔄 PLAY AGAIN', y: h - 240, action: () => {
+        this.scene.start('MatchScene', { mode: this.mode, court: this.court,
+          p1name: this.p1name, p2name: this.p2name });
+      }},
+      { label: '🏠 MAIN MENU', y: h - 170, action: () => { this.scene.start('MenuScene'); }},
+      { label: '🏆 LEAGUE',    y: h - 100, action: () => { this.scene.start('LeagueScene'); }},
+    ];
+
+    btns.forEach(b => {
+      const bg = this.add.graphics().setDepth(3);
+      bg.fillStyle(0x1a3a6b, 0.9);
+      bg.fillRoundedRect(w/2 - 110, b.y - 25, 220, 50, 12);
+      bg.lineStyle(1.5, 0x4477cc, 0.6);
+      bg.strokeRoundedRect(w/2 - 110, b.y - 25, 220, 50, 12);
+
+      this.add.text(w/2, b.y, b.label, {
+        fontSize: '17px', fontStyle: 'bold', color: '#ffffff'
+      }).setOrigin(0.5).setDepth(4);
+
+      const z = this.add.zone(w/2, b.y, 220, 50).setInteractive({ useHandCursor: true }).setDepth(5);
+      z.on('pointerdown', () => { synth.menuTap(); b.action(); });
+      z.on('pointerover', () => { bg.setAlpha(0.7); });
+      z.on('pointerout', () => { bg.setAlpha(1); });
+    });
+
+    synth.victory();
+  }
+
+  update(t, dt) {
+    this.confGfx.clear();
+    this.confetti.forEach(c => {
+      c.x += c.vx * dt / 1000;
+      c.y += c.vy * dt / 1000;
+      c.rot += c.rotV * dt / 1000;
+      if (c.y > this.scale.height + 20) c.y = -20;
+      this.confGfx.save();
+      this.confGfx.fillStyle(c.color, 0.85);
+      this.confGfx.fillRect(c.x - c.w/2, c.y - c.h/2, c.w, c.h);
+      this.confGfx.restore();
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: LEAGUE
+// ═══════════════════════════════════════════════════════════
+class LeagueScene extends Phaser.Scene {
+  constructor() { super('LeagueScene'); }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    this.currentView = 'main';
+
+    this.add.image(w/2, h/2, 'logo_bg');
+    this.add.image(w/2, h/2, 'court_hard').setAlpha(0.08);
+
+    this._buildMainView(w, h);
+  }
+
+  _buildMainView(w, h) {
+    this.viewGroup = this.add.group();
+
+    const title = this.add.text(w/2, 65, '🏆 LEAGUE MODE', {
+      fontSize: '24px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#aa7700', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(3);
+    this.viewGroup.add(title);
+
+    // Create league button
+    const createBg = this.add.graphics().setDepth(3);
+    createBg.fillStyle(0x22aa55, 0.9);
+    createBg.fillRoundedRect(w/2 - 130, 120, 260, 60, 14);
+    this.viewGroup.add(createBg);
+    const createT = this.add.text(w/2, 150, '➕ CREATE LEAGUE', {
+      fontSize: '18px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(4);
+    this.viewGroup.add(createT);
+    const createZ = this.add.zone(w/2, 150, 260, 60).setInteractive({ useHandCursor: true }).setDepth(5);
+    createZ.on('pointerdown', () => this._showCreateLeague(w, h));
+    this.viewGroup.add(createZ);
+
+    // Join league button
+    const joinBg = this.add.graphics().setDepth(3);
+    joinBg.fillStyle(0x1a6bff, 0.9);
+    joinBg.fillRoundedRect(w/2 - 130, 200, 260, 60, 14);
+    this.viewGroup.add(joinBg);
+    const joinT = this.add.text(w/2, 230, '🔗 JOIN LEAGUE', {
+      fontSize: '18px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(4);
+    this.viewGroup.add(joinT);
+    const joinZ = this.add.zone(w/2, 230, 260, 60).setInteractive({ useHandCursor: true }).setDepth(5);
+    joinZ.on('pointerdown', () => this._showJoinLeague(w, h));
+    this.viewGroup.add(joinZ);
+
+    // List existing leagues
+    this._buildLeagueList(w, h, 290);
+
+    // Back
+    const backBg = this.add.graphics().setDepth(3);
+    backBg.fillStyle(0x222244, 0.9);
+    backBg.fillRoundedRect(w/2 - 70, h - 70, 140, 44, 10);
+    this.viewGroup.add(backBg);
+    const backT = this.add.text(w/2, h - 48, '← BACK', {
+      fontSize: '15px', color: '#aabbff'
+    }).setOrigin(0.5).setDepth(4);
+    this.viewGroup.add(backT);
+    const backZ = this.add.zone(w/2, h - 48, 140, 44).setInteractive({ useHandCursor: true }).setDepth(5);
+    backZ.on('pointerdown', () => { synth.menuTap(); this.scene.start('MenuScene'); });
+    this.viewGroup.add(backZ);
+  }
+
+  _buildLeagueList(w, h, startY) {
+    const leagues = LeagueManager.getLeagues();
+    const keys = Object.keys(leagues);
+
+    if (keys.length === 0) {
+      const t = this.add.text(w/2, startY + 30, 'No leagues yet.\nCreate or join one!', {
+        fontSize: '14px', color: '#4455aa', align: 'center'
+      }).setOrigin(0.5).setDepth(3);
+      this.viewGroup.add(t);
+      return;
+    }
+
+    const headerT = this.add.text(w/2, startY, 'YOUR LEAGUES', {
+      fontSize: '13px', color: '#8899bb'
+    }).setOrigin(0.5).setDepth(3);
+    this.viewGroup.add(headerT);
+
+    keys.slice(0, 5).forEach((code, i) => {
+      const league = leagues[code];
+      const by = startY + 35 + i * 72;
+
+      const bg = this.add.graphics().setDepth(3);
+      bg.fillStyle(0x0a1a30, 0.9);
+      bg.fillRoundedRect(w/2 - 155, by, 310, 60, 10);
+      bg.lineStyle(1.5, 0x224488, 0.5);
+      bg.strokeRoundedRect(w/2 - 155, by, 310, 60, 10);
+      this.viewGroup.add(bg);
+
+      const nameT = this.add.text(w/2 - 140, by + 10, league.name || 'League', {
+        fontSize: '14px', fontStyle: 'bold', color: '#ffffff'
+      }).setDepth(4);
+      this.viewGroup.add(nameT);
+
+      const codeT = this.add.text(w/2 - 140, by + 32, 'Code: ' + code + '  •  ' + (league.players?.length || 0) + ' players', {
+        fontSize: '11px', color: '#8899bb'
+      }).setDepth(4);
+      this.viewGroup.add(codeT);
+
+      // View button
+      const vbg = this.add.graphics().setDepth(4);
+      vbg.fillStyle(0x1a3a6b, 1);
+      vbg.fillRoundedRect(w/2 + 80, by + 14, 64, 30, 6);
+      this.viewGroup.add(vbg);
+      const vt = this.add.text(w/2 + 112, by + 29, 'VIEW', {
+        fontSize: '11px', fontStyle: 'bold', color: '#88ccff'
+      }).setOrigin(0.5).setDepth(5);
+      this.viewGroup.add(vt);
+      const vz = this.add.zone(w/2 + 112, by + 29, 64, 30).setInteractive({ useHandCursor: true }).setDepth(6);
+      vz.on('pointerdown', () => this._showLeagueDetail(w, h, code));
+      this.viewGroup.add(vz);
+    });
+  }
+
+  _showCreateLeague(w, h) {
+    // Prompt via HTML overlay
+    const name   = prompt('League Name:', 'My League') || 'My League';
+    const player = prompt('Your Name:', 'Player') || 'Player';
+    const code   = LeagueManager.createLeague(name, player);
+    alert('League created! Code: ' + code + '\nShare this with friends!');
+    this.viewGroup.clear(true, true);
+    this._buildMainView(w, h);
+  }
+
+  _showJoinLeague(w, h) {
+    const code   = (prompt('Enter League Code:', '') || '').toUpperCase().trim();
+    if (!code) return;
+    const player = prompt('Your Name:', 'Player') || 'Player';
+    const league = LeagueManager.joinLeague(code, player);
+    if (league) {
+      alert('Joined league: ' + league.name + '!');
+      this.viewGroup.clear(true, true);
+      this._buildMainView(w, h);
+    } else {
+      alert('League code not found!');
+    }
+  }
+
+  _showLeagueDetail(w, h, code) {
+    const league = LeagueManager.getLeague(code);
+    if (!league) return;
+
+    this.viewGroup.clear(true, true);
+    this.detailGroup = this.add.group();
+
+    const title = this.add.text(w/2, 50, league.name, {
+      fontSize: '20px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#aa7700', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(3);
+    this.detailGroup.add(title);
+
+    const codeT = this.add.text(w/2, 80, 'Code: ' + code, {
+      fontSize: '13px', color: '#8899bb'
+    }).setOrigin(0.5).setDepth(3);
+    this.detailGroup.add(codeT);
+
+    // Leaderboard
+    const sortedPlayers = [...(league.players || [])].sort((a, b) => b.points - a.points);
+    const headerBg = this.add.graphics().setDepth(3);
+    headerBg.fillStyle(0x1a3a6b, 0.8);
+    headerBg.fillRoundedRect(w/2 - 155, 100, 310, 36, 8);
+    this.detailGroup.add(headerBg);
+    const headers = ['#', 'PLAYER', 'W', 'L', 'PTS'];
+    const hx = [30, 100, 230, 275, 320];
+    headers.forEach((h2, i) => {
+      const ht = this.add.text(hx[i], 118, h2, {
+        fontSize: '11px', fontStyle: 'bold', color: '#88aacc'
+      }).setOrigin(0.5).setDepth(4);
+      this.detailGroup.add(ht);
+    });
+
+    sortedPlayers.forEach((p, i) => {
+      const py = 145 + i * 50;
+      const rowBg = this.add.graphics().setDepth(3);
+      rowBg.fillStyle(i % 2 === 0 ? 0x0a1828 : 0x0d2035, 0.8);
+      rowBg.fillRoundedRect(w/2 - 155, py, 310, 44, 6);
+      if (i === 0) {
+        rowBg.lineStyle(1.5, 0xffd700, 0.5);
+        rowBg.strokeRoundedRect(w/2 - 155, py, 310, 44, 6);
+      }
+      this.detailGroup.add(rowBg);
+
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+      const cols = [medal, p.name.substring(0, 10), p.wins, p.losses, p.points];
+      cols.forEach((v, j) => {
+        const ct = this.add.text(hx[j], py + 22, String(v), {
+          fontSize: j === 1 ? '13px' : '14px',
+          fontStyle: j === 1 ? 'normal' : 'bold',
+          color: i === 0 ? '#ffd700' : '#ffffff'
+        }).setOrigin(0.5).setDepth(4);
+        this.detailGroup.add(ct);
+      });
+    });
+
+    // Play league match
+    const playY = h - 145;
+    const playBg = this.add.graphics().setDepth(3);
+    playBg.fillStyle(0x22aa55, 0.9);
+    playBg.fillRoundedRect(w/2 - 120, playY, 240, 50, 12);
+    this.detailGroup.add(playBg);
+    const playT = this.add.text(w/2, playY + 25, '⚡ PLAY MATCH', {
+      fontSize: '17px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(4);
+    this.detailGroup.add(playT);
+    const playZ = this.add.zone(w/2, playY + 25, 240, 50).setInteractive({ useHandCursor: true }).setDepth(5);
+    playZ.on('pointerdown', () => {
+      synth.menuTap();
+      const p1name = sortedPlayers[0]?.name || 'Player 1';
+      this.scene.start('MatchScene', {
+        mode: 'hvh',
+        court: 'hard',
+        leagueCode: code,
+        p1name,
+        p2name: 'Opponent'
+      });
+    });
+    this.detailGroup.add(playZ);
+
+    // Back
+    const backBg = this.add.graphics().setDepth(3);
+    backBg.fillStyle(0x222244, 0.9);
+    backBg.fillRoundedRect(w/2 - 70, h - 75, 140, 44, 10);
+    this.detailGroup.add(backBg);
+    const backT = this.add.text(w/2, h - 53, '← BACK', {
+      fontSize: '15px', color: '#aabbff'
+    }).setOrigin(0.5).setDepth(4);
+    this.detailGroup.add(backT);
+    const backZ = this.add.zone(w/2, h - 53, 140, 44).setInteractive({ useHandCursor: true }).setDepth(5);
+    backZ.on('pointerdown', () => {
+      this.detailGroup.clear(true, true);
+      this._buildMainView(w, h);
+    });
+    this.detailGroup.add(backZ);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE: TRAINING
+// ═══════════════════════════════════════════════════════════
+class TrainingScene extends Phaser.Scene {
+  constructor() { super('TrainingScene'); }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    this.currentDrill = 'menu';
+    this.drillScore = 0;
+    this.totalDrills = 0;
+    this.drillTimer = 0;
+    this.drillActive = false;
+    this.targets = [];
+    this.hitsRemaining = 0;
+
+    this.add.image(w/2, h/2, 'court_hard');
+    this.add.image(w/2, COURT_TOP - 20, 'crowd').setAlpha(0.5);
+    this.net = this.add.image(w/2, NET_Y + 4, 'net').setDepth(8);
+
+    this.player = new Player(this, 1, COURT_MID_X, COURT_BOTTOM - 70, true);
+    this.ball = new TennisBall(this);
+    this.emitterGfx = this.add.graphics().setDepth(11);
+    this.bounceParticles = [];
+
+    this._buildTrainingMenu(w, h);
+
+    this.input.on('pointerdown', (p) => {
+      synth.resume();
+      this.joy && this.joy.handlePointer(p, true);
+      if (this.drillActive) this._handleDrillTap(p);
+    });
+    this.input.on('pointerup',   (p) => { this.joy && this.joy.handlePointer(p, false); });
+    this.input.on('pointermove', (p) => { this.joy && this.joy.handleMove(p); });
+  }
+
+  _buildTrainingMenu(w, h) {
+    if (this.menuGroup) this.menuGroup.clear(true, true);
+    this.menuGroup = this.add.group();
+
+    const overlay = this.add.graphics().setDepth(20);
+    overlay.fillStyle(0x000000, 0.7);
+    overlay.fillRect(0, 0, w, h);
+    this.menuGroup.add(overlay);
+
+    const title = this.add.text(w/2, 80, '🎯 TRAINING MODE', {
+      fontSize: '22px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#1a3aff', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(21);
+    this.menuGroup.add(title);
+
+    const drills = [
+      { key: 'serve',    label: '🎾 SERVE PRACTICE',  desc: '10 serves, hit targets', color: '#22aa55' },
+      { key: 'target',   label: '🎯 TARGET SHOTS',    desc: 'Hit moving targets',      color: '#1a6bff' },
+      { key: 'reaction', label: '⚡ REACTION DRILLS', desc: 'React to fast balls',     color: '#cc8800' },
+    ];
+
+    drills.forEach((d, i) => {
+      const by = 180 + i * 110;
+      const col = Phaser.Display.Color.HexStringToColor(d.color).color;
+
+      const bg = this.add.graphics().setDepth(21);
+      bg.fillStyle(col, 0.85);
+      bg.fillRoundedRect(w/2 - 140, by, 280, 80, 14);
+      bg.lineStyle(2, 0xffffff, 0.2);
+      bg.strokeRoundedRect(w/2 - 140, by, 280, 80, 14);
+      this.menuGroup.add(bg);
+
+      const lt = this.add.text(w/2, by + 24, d.label, {
+        fontSize: '18px', fontStyle: 'bold', color: '#ffffff',
+        stroke: '#00000044', strokeThickness: 2
+      }).setOrigin(0.5).setDepth(22);
+      this.menuGroup.add(lt);
+
+      const dt2 = this.add.text(w/2, by + 52, d.desc, {
+        fontSize: '12px', color: '#ffffffaa'
+      }).setOrigin(0.5).setDepth(22);
+      this.menuGroup.add(dt2);
+
+      const z = this.add.zone(w/2, by + 40, 280, 80).setInteractive({ useHandCursor: true }).setDepth(23);
+      z.on('pointerdown', () => {
+        synth.menuTap();
+        this._startDrill(d.key, w, h);
+      });
+      this.menuGroup.add(z);
+    });
+
+    // Back
+    const backBg = this.add.graphics().setDepth(21);
+    backBg.fillStyle(0x222244, 0.9);
+    backBg.fillRoundedRect(w/2 - 70, h - 75, 140, 44, 10);
+    this.menuGroup.add(backBg);
+    const backT = this.add.text(w/2, h - 53, '← BACK', { fontSize: '15px', color: '#aabbff' }).setOrigin(0.5).setDepth(22);
+    this.menuGroup.add(backT);
+    const backZ = this.add.zone(w/2, h - 53, 140, 44).setInteractive({ useHandCursor: true }).setDepth(23);
+    backZ.on('pointerdown', () => { synth.menuTap(); this.scene.start('MenuScene'); });
+    this.menuGroup.add(backZ);
+  }
+
+  _startDrill(key, w, h) {
+    this.menuGroup.clear(true, true);
+    this.currentDrill = key;
+    this.drillScore = 0;
+    this.drillActive = true;
+    this.drillTimer = 0;
+    this.hitsRemaining = key === 'serve' ? 10 : key === 'target' ? 8 : 15;
+
+    // Setup joystick
+    if (!this.joy) {
+      this.joy = new VirtualJoystick(this, 75, h - 120);
+    }
+
+    // Score HUD
+    if (this.drillHUD) this.drillHUD.destroy();
+    this.drillScoreText = this.add.text(w/2, 25, 'HITS: 0/' + this.hitsRemaining, {
+      fontSize: '18px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#000000', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(20);
+
+    this.drillTimerText = this.add.text(w - 20, 25, '0.0s', {
+      fontSize: '14px', color: '#aabbcc'
+    }).setOrigin(1, 0.5).setDepth(20);
+
+    this.drillHintText = this.add.text(w/2, 80, 'TAP HIT BUTTON', {
+      fontSize: '13px', color: '#ffffff88'
+    }).setOrigin(0.5).setDepth(20);
+
+    // Hit button
+    const hitG = this.add.graphics().setDepth(30);
+    hitG.fillStyle(0x1a6bff, 0.9);
+    hitG.fillCircle(w - 70, h - 110, 45);
+    const hitT = this.add.text(w - 70, h - 110, 'HIT', {
+      fontSize: '13px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(31);
+    const hitZ = this.add.zone(w - 70, h - 110, 90, 90).setInteractive().setDepth(32);
+    hitZ.on('pointerdown', () => { this._performDrillHit(); });
+
+    // Back
+    const bkG = this.add.graphics().setDepth(30);
+    bkG.fillStyle(0x222244, 0.7);
+    bkG.fillRoundedRect(10, 10, 70, 34, 7);
+    const bkT = this.add.text(45, 27, '← BACK', { fontSize: '11px', color: '#aabbff' }).setOrigin(0.5).setDepth(31);
+    const bkZ = this.add.zone(45, 27, 70, 34).setInteractive().setDepth(32);
+    bkZ.on('pointerdown', () => {
+      this.drillActive = false;
+      this.ball.hide();
+      this._clearTargets();
+      if (this.joy) { this.joy.destroy(); this.joy = null; }
+      this._buildTrainingMenu(w, h);
+    });
+
+    // Place targets
+    if (key === 'target') this._placeTargets();
+
+    // Launch first ball
+    this._launchDrillBall();
+  }
+
+  _placeTargets() {
+    this._clearTargets();
+    for (let i = 0; i < 3; i++) {
+      const tx = Phaser.Math.Between(COURT_LEFT + 30, COURT_RIGHT - 30);
+      const ty = Phaser.Math.Between(COURT_TOP + 20, NET_Y - 20);
+      const img = this.add.image(tx, ty, 'target').setDepth(7).setAlpha(0.8);
+      this.tweens.add({ targets: img, scaleX: 1.2, scaleY: 1.2, duration: 500, yoyo: true, repeat: -1 });
+      this.targets.push({ x: tx, y: ty, img });
+    }
+  }
+
+  _clearTargets() {
+    this.targets.forEach(t => { t.img.destroy(); });
+    this.targets = [];
+  }
+
+  _launchDrillBall() {
+    const fromX = Phaser.Math.Between(COURT_LEFT + 30, COURT_RIGHT - 30);
+    const fromY = COURT_TOP + 50;
+    const speed = this.currentDrill === 'reaction' ? 400 + Math.random() * 150 : 250 + Math.random() * 100;
+    this.ball.launch(fromX, fromY, COURT_MID_X, COURT_BOTTOM - 70, speed, 'topspin', 2);
+  }
+
+  _performDrillHit() {
+    if (!this.drillActive) return;
+    const w = this.scale.width;
+
+    let success = false;
+
+    if (this.currentDrill === 'target') {
+      // Check if ball is near a target
+      const nearTarget = this.targets.find(t => {
+        return Math.abs(this.ball.x - t.x) < 50 && Math.abs(this.ball.y - t.y) < 50;
+      });
+      if (this.player.canReachBall(this.ball) || nearTarget) {
+        success = true;
+        if (nearTarget) {
+          nearTarget.img.destroy();
+          this.targets = this.targets.filter(t => t !== nearTarget);
+          this._emitHitEffect(nearTarget.x, nearTarget.y);
+        }
+      }
+    } else {
+      success = this.player.canReachBall(this.ball) || this.ball.z < 100;
+    }
+
+    if (success) {
+      this.drillScore++;
+      this.hitsRemaining--;
+      synth.ballHit(0.8);
+      this.cameras.main.shake(50, 0.004);
+
+      if (this.drillScoreText) {
+        this.drillScoreText.setText('HITS: ' + this.drillScore + '/' + (this.drillScore + this.hitsRemaining));
+      }
+
+      // Counter-hit
+      const tx = Phaser.Math.Between(COURT_LEFT + 30, COURT_RIGHT - 30);
+      const ty = Phaser.Math.Between(COURT_TOP + 20, NET_Y - 30);
+      this.ball.launch(this.player.x, this.player.y, tx, ty, 280, 'topspin', 1);
+
+      if (this.hitsRemaining <= 0) {
+        this._endDrill(w, this.scale.height);
+        return;
+      }
+
+      this.time.delayedCall(1500, () => {
+        if (this.drillActive) {
+          this._launchDrillBall();
+          if (this.currentDrill === 'target' && this.targets.length === 0) {
+            this._placeTargets();
+          }
+        }
+      });
+    } else {
+      // Miss
+      this.add.text(w/2, 300, 'MISS!', {
+        fontSize: '20px', fontStyle: 'bold', color: '#ff3333',
+        stroke: '#000', strokeThickness: 3
+      }).setOrigin(0.5).setDepth(20).setAlpha(1);
+    }
+  }
+
+  _emitHitEffect(x, y) {
+    for (let i = 0; i < 10; i++) {
+      this.bounceParticles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 120,
+        vy: -80 - Math.random() * 80,
+        life: 0.6, maxLife: 0.6,
+        r: 3 + Math.random() * 4,
+        color: 0xffd700
+      });
+    }
+  }
+
+  _handleDrillTap(p) {
+    // handled by zone
+  }
+
+  _endDrill(w, h) {
+    this.drillActive = false;
+    this.ball.hide();
+    this._clearTargets();
+
+    const overlay = this.add.graphics().setDepth(40);
+    overlay.fillStyle(0x000000, 0.75);
+    overlay.fillRect(0, 0, w, h);
+
+    this.add.text(w/2, h/2 - 100, '🎯 DRILL COMPLETE!', {
+      fontSize: '24px', fontStyle: 'bold', color: '#ffd700',
+      stroke: '#aa7700', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(41);
+
+    const totalPossible = this.drillScore + this.hitsRemaining;
+    const pct = Math.round((this.drillScore / Math.max(1, totalPossible)) * 100);
+    const grade = pct >= 90 ? 'S+' : pct >= 75 ? 'A' : pct >= 60 ? 'B' : pct >= 40 ? 'C' : 'D';
+
+    this.add.text(w/2, h/2 - 50, 'Score: ' + this.drillScore + '  Grade: ' + grade, {
+      fontSize: '22px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(41);
+
+    this.add.text(w/2, h/2, 'Accuracy: ' + pct + '%', {
+      fontSize: '16px', color: '#aabbcc'
+    }).setOrigin(0.5).setDepth(41);
+
+    synth.victory();
+
+    // Retry / menu
+    const retryBg = this.add.graphics().setDepth(41);
+    retryBg.fillStyle(0x22aa55, 0.9);
+    retryBg.fillRoundedRect(w/2 - 110, h/2 + 60, 220, 50, 12);
+    this.add.text(w/2, h/2 + 85, '🔄 TRY AGAIN', {
+      fontSize: '17px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(42);
+    const rz = this.add.zone(w/2, h/2 + 85, 220, 50).setInteractive().setDepth(43);
+    rz.on('pointerdown', () => {
+      if (this.joy) { this.joy.destroy(); this.joy = null; }
+      this._startDrill(this.currentDrill, w, h);
+    });
+
+    const menuBg = this.add.graphics().setDepth(41);
+    menuBg.fillStyle(0x1a3a6b, 0.9);
+    menuBg.fillRoundedRect(w/2 - 110, h/2 + 130, 220, 50, 12);
+    this.add.text(w/2, h/2 + 155, '🏠 MENU', {
+      fontSize: '17px', fontStyle: 'bold', color: '#ffffff'
+    }).setOrigin(0.5).setDepth(42);
+    const mz = this.add.zone(w/2, h/2 + 155, 220, 50).setInteractive().setDepth(43);
+    mz.on('pointerdown', () => {
+      if (this.joy) { this.joy.destroy(); this.joy = null; }
+      this.scene.start('MenuScene');
+    });
+  }
+
+  update(time, delta) {
+    if (!this.drillActive) return;
+    const dt = delta / 1000;
+    this.drillTimer += dt;
+
+    if (this.drillTimerText) this.drillTimerText.setText(this.drillTimer.toFixed(1) + 's');
+
+    if (this.joy && this.joy.active) {
+      this.player.move(this.joy.dx, this.joy.dy, dt);
+    }
+
+    this.player.update(dt);
+    this.ball.update(dt);
+
+    // Particle update
+    this.emitterGfx.clear();
+    this.bounceParticles = this.bounceParticles.filter(p => {
+      p.life -= dt;
+      if (p.life <= 0) return false;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 100 * dt;
+      const a = p.life / p.maxLife;
+      this.emitterGfx.fillStyle(p.color, a);
+      this.emitterGfx.fillCircle(p.x, p.y, p.r * a);
+      return true;
+    });
+
+    if (this.ball.inPlay && this.ball.bounces >= 2) {
+      this.ball.hide();
+      if (this.drillActive) {
+        this.time.delayedCall(800, () => {
+          if (this.drillActive) this._launchDrillBall();
+        });
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASER GAME CONFIG
+// ═══════════════════════════════════════════════════════════
+const config = {
+  type: Phaser.AUTO,
+  width: W,
+  height: H,
+  backgroundColor: '#0a0f1e',
+  parent: 'game-container',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: W,
+    height: H,
+  },
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scene: [BootScene, MenuScene, DifficultyScene, MatchScene, ResultScene, LeagueScene, TrainingScene],
+  render: {
+    antialias: true,
+    pixelArt: false,
+    roundPixels: false,
+  },
+  input: {
+    touch: true,
+    mouse: true,
+  }
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
