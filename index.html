@@ -27,8 +27,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
   }
-  canvas { display: block; }
+  canvas {
+    display: block;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
 </style>
 </head>
 <body>
@@ -1073,7 +1079,6 @@ class BootScene extends Phaser.Scene {
     let progress = 0;
     const steps = [
       () => { AssetGen.generateAll(this); },
-      () => { synth.init(); },
     ];
 
     const runStep = (i) => {
@@ -1089,9 +1094,11 @@ class BootScene extends Phaser.Scene {
         }).setOrigin(0.5);
         this.tweens.add({ targets: this.children.getAll().slice(-1)[0], alpha: 0.2, duration: 500, yoyo: true, repeat: -1 });
         this.input.once('pointerdown', () => {
+          synth.init();
           synth.resume();
           this.cameras.main.fade(300, 0, 0, 0);
-          this.time.delayedCall(320, () => this.scene.start('MenuScene'));
+          const scene = this.scene;
+          setTimeout(() => scene.start('MenuScene'), 320);
         });
         return;
       }
@@ -1188,15 +1195,16 @@ class MenuScene extends Phaser.Scene {
         synth.resume();
         synth.menuTap();
         this.cameras.main.shake(80, 0.005);
-        this.time.delayedCall(120, () => {
+        const scene = this.scene;
+        setTimeout(() => {
           if (b.scene === 'DifficultyScene') {
-            this.scene.start('DifficultyScene');
+            scene.start('DifficultyScene');
           } else if (b.mode === 'hvh') {
-            this.scene.start('MatchScene', { mode: 'hvh', court: 'grass', difficulty: 'medium' });
+            scene.start('MatchScene', { mode: 'hvh', court: 'grass', difficulty: 'medium' });
           } else {
-            this.scene.start(b.scene);
+            scene.start(b.scene);
           }
-        });
+        }, 120);
       });
       zone.on('pointerover', () => { bgG.setAlpha(0.8); });
       zone.on('pointerout',  () => { bgG.setAlpha(1); });
@@ -1328,14 +1336,17 @@ class DifficultyScene extends Phaser.Scene {
 
       const zone = this.add.zone(w/2, by, 280, 70).setInteractive({ useHandCursor: true }).setDepth(5);
       zone.on('pointerdown', () => {
+        synth.resume();
         synth.menuTap();
         this.cameras.main.shake(60, 0.005);
-        this.time.delayedCall(100, () => {
-          this.scene.start('MatchScene', {
+        const scene = this.scene;
+        const selectedCourt = this.selectedCourt;
+        setTimeout(() => {
+          scene.start('MatchScene', {
             mode: 'pvc', difficulty: d.key,
-            court: this.selectedCourt
+            court: selectedCourt
           });
-        });
+        }, 100);
       });
       zone.on('pointerover', () => { g.setAlpha(0.7); });
       zone.on('pointerout',  () => { g.setAlpha(1); });
@@ -1383,8 +1394,8 @@ class MatchScene extends Phaser.Scene {
     this.inPoint = false;
     this.smashZoom = false;
 
-    // Fade in
-    this.cameras.main.fadeIn(400, 0, 0, 0);
+    // Fade in (shorter on mobile to avoid confusion)
+    this.cameras.main.fadeIn(200, 0, 0, 0);
 
     // Court
     const courtKey = 'court_' + this.courtType;
@@ -1469,15 +1480,16 @@ class MatchScene extends Phaser.Scene {
     // Input handling
     this.input.on('pointerdown', (p) => {
       synth.resume();
+      this.swipeStart = { x: p.x, y: p.y };
       this.joy1.handlePointer(p, true);
       if (isHvH && this.joy2) this.joy2.handlePointer(p, true);
       this._handleActionPress(p);
 
-        // Serve tap — only if pointer is in lower half (player 1 side)
-      if (this.waitingForServe && this.servingPlayer === 1 && p.y > this.scale.height * 0.5) {
+      // Serve tap — player 1 in lower half, player 2 in upper half
+      if (this.waitingForServe && this.servingPlayer === 1 && p.y >= this.scale.height * 0.45) {
         this._doServe(1);
       }
-      if (this.mode === 'hvh' && this.waitingForServe && this.servingPlayer === 2 && p.y < this.scale.height * 0.5) {
+      if (this.mode === 'hvh' && this.waitingForServe && this.servingPlayer === 2 && p.y <= this.scale.height * 0.55) {
         this._doServe(2);
       }
     });
@@ -1485,16 +1497,6 @@ class MatchScene extends Phaser.Scene {
       this.joy1.handlePointer(p, false);
       if (isHvH && this.joy2) this.joy2.handlePointer(p, false);
       this._handleActionRelease(p);
-    });
-    this.input.on('pointermove', (p) => {
-      this.joy1.handleMove(p);
-      if (isHvH && this.joy2) this.joy2.handleMove(p);
-    });
-
-    // Swipe detection
-    this.swipeStart = null;
-    this.input.on('pointerdown', (p) => { this.swipeStart = { x: p.x, y: p.y }; });
-    this.input.on('pointerup',   (p) => {
       if (!this.swipeStart) return;
       const dx = p.x - this.swipeStart.x;
       const dy = p.y - this.swipeStart.y;
@@ -1505,6 +1507,10 @@ class MatchScene extends Phaser.Scene {
         else this.pendingShot = 'topspin';
       }
       this.swipeStart = null;
+    });
+    this.input.on('pointermove', (p) => {
+      this.joy1.handleMove(p);
+      if (isHvH && this.joy2) this.joy2.handleMove(p);
     });
 
     this.pendingShot = 'normal';
@@ -2710,9 +2716,7 @@ class TrainingScene extends Phaser.Scene {
 // PHASER GAME CONFIG
 // ═══════════════════════════════════════════════════════════
 const config = {
-  type: Phaser.AUTO,
-  width: W,
-  height: H,
+  type: Phaser.CANVAS,
   backgroundColor: '#0a0f1e',
   parent: 'game-container',
   scale: {
@@ -2727,14 +2731,16 @@ const config = {
   },
   scene: [BootScene, MenuScene, DifficultyScene, MatchScene, ResultScene, LeagueScene, TrainingScene],
   render: {
-    antialias: true,
+    antialias: false,
     pixelArt: false,
-    roundPixels: false,
+    roundPixels: true,
   },
   input: {
     touch: true,
     mouse: true,
-  }
+    activePointers: 3,
+  },
+  disableVisibilityChange: true,
 };
 
 const game = new Phaser.Game(config);
