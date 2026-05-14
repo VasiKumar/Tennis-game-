@@ -1,0 +1,111 @@
+/* ============================================================
+   POCKET TENNIS LEAGUE — Stylesheet
+   ============================================================ */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Arial', 'Helvetica Neue', sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Crisp pixel rendering for canvas art */
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+/* Keyboard controls hint overlay (shown on desktop) */
+#keyboard-hint {
+  position: fixed;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 9999;
+  display: none;
+}
+
+/* Show keyboard hint only on non-touch devices */
+@media (hover: hover) and (pointer: fine) {
+  #keyboard-hint {
+    display: block;
+  }
+}
+
+/* Full-screen support for PWA / mobile home screen */
+@media screen and (display-mode: fullscreen) {
+  body { background: #000; }
+}
+
+/* Landscape orientation message */
+#rotate-msg {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #000;
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 99999;
+}
+
+#rotate-msg span {
+  font-size: 48px;
+}
+
+/* On small screens in landscape, prompt rotation */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  #rotate-msg {
+    display: flex;
+  }
+  #game-container {
+    display: none;
+  }
+}
