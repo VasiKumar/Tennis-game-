@@ -72,6 +72,36 @@ class MatchScene extends Phaser.Scene {
     this.timerText  = this.add.text(w / 2, 15, '00:00', {
       fontSize: '11px', color: '#7788aa',
     }).setOrigin(0.5).setDepth(20);
+
+    // ── First-match tutorial state ──
+    this.tutorialActive = false;
+    this.tutorialStep = 0;
+    this.tutorialOverlay = null;
+    this.tutorialActionTimer = null;
+    this.tutorialSteps = [
+      {
+        title: 'MOVE',
+        body: 'Use the LEFT JOYSTICK\n(Arrow keys / WASD also work).',
+        button: 'TRY MOVE',
+        guide: 'joystick',
+        actionMs: 2600,
+      },
+      {
+        title: 'HIT',
+        body: 'Tap HIT (or Space / Enter)\nto serve and return shots.',
+        button: 'TRY HIT',
+        guide: 'hit',
+        actionMs: 2600,
+      },
+      {
+        title: 'SHOT TYPES',
+        body: 'Use LOB, SPIN, and SMASH.\nAim over the NET line.',
+        button: 'START MATCH',
+        guide: 'net',
+        actionMs: 0,
+      },
+    ];
+    this._maybeStartTutorial();
   }
 
   // ── Controls setup ──────────────────────────────────────────
@@ -109,6 +139,7 @@ class MatchScene extends Phaser.Scene {
     this.actionPointers = {};
 
     this.input.on('pointerdown', (p) => {
+      if (this.tutorialActive && this.isPaused) return;
       synth.resume();
       this.swipeStart = { x: p.x, y: p.y };
       this.joy1.handlePointer(p, true);
@@ -117,6 +148,7 @@ class MatchScene extends Phaser.Scene {
       if (isHvH && this.waitingForServe && this.servingPlayer === 2 && p.y <= h * 0.55) this._doServe(2);
     });
     this.input.on('pointerup', (p) => {
+      if (this.tutorialActive && this.isPaused) return;
       this.joy1.handlePointer(p, false);
       if (isHvH && this.joy2) this.joy2.handlePointer(p, false);
       if (this.swipeStart) {
@@ -130,6 +162,7 @@ class MatchScene extends Phaser.Scene {
       }
     });
     this.input.on('pointermove', (p) => {
+      if (this.tutorialActive && this.isPaused) return;
       this.joy1.handleMove(p);
       if (isHvH && this.joy2) this.joy2.handleMove(p);
     });
@@ -258,6 +291,7 @@ class MatchScene extends Phaser.Scene {
   }
 
   _doServe(player) {
+    if (this.tutorialActive && this.isPaused) return;
     if (!this.waitingForServe) return;
     this.waitingForServe = false;
     this.serveText.setVisible(false);
@@ -275,6 +309,7 @@ class MatchScene extends Phaser.Scene {
   }
 
   _tryHit(player) {
+    if (this.tutorialActive && this.isPaused) return;
     if (this.waitingForServe) {
       if (this.servingPlayer === player) this._doServe(player);
       return;
@@ -422,9 +457,147 @@ class MatchScene extends Phaser.Scene {
 
   // ── Pause overlay ────────────────────────────────────────────
   _togglePause() {
+    if (this.tutorialActive) return;
     this.isPaused = !this.isPaused;
     if (this.isPaused) this._showPauseMenu();
     else               this._hidePauseMenu();
+  }
+
+  _tutorialSeen() {
+    try { return localStorage.getItem('ptl_match_tutorial_done') === '1'; }
+    catch { return false; }
+  }
+
+  _markTutorialSeen() {
+    try { localStorage.setItem('ptl_match_tutorial_done', '1'); } catch {}
+  }
+
+  _maybeStartTutorial() {
+    if (this._tutorialSeen()) return;
+    this.tutorialActive = true;
+    this.tutorialStep = 0;
+    this.isPaused = true;
+    this._showTutorialStep();
+  }
+
+  _showTutorialStep() {
+    this._clearTutorialOverlay();
+    const w = this.scale.width, h = this.scale.height;
+    const step = this.tutorialSteps[this.tutorialStep];
+    if (!step) { this._finishTutorial(); return; }
+
+    this.tutorialOverlay = this.add.group();
+
+    const dim = this.add.graphics().setDepth(45);
+    dim.fillStyle(0x000000, 0.68);
+    dim.fillRect(0, 0, w, h);
+    this.tutorialOverlay.add(dim);
+
+    const guide = this.add.graphics().setDepth(46);
+    guide.lineStyle(3, 0xffdd55, 0.95);
+    guide.fillStyle(0xffdd55, 0.85);
+    if (step.guide === 'joystick') {
+      guide.strokeCircle(72, h - 112, 66);
+      guide.beginPath();
+      guide.moveTo(w / 2, h / 2 - 20);
+      guide.lineTo(120, h - 180);
+      guide.strokePath();
+    } else if (step.guide === 'hit') {
+      guide.strokeCircle(w - 68, h - 112, 54);
+      guide.beginPath();
+      guide.moveTo(w / 2, h / 2 - 20);
+      guide.lineTo(w - 110, h - 170);
+      guide.strokePath();
+    } else {
+      const netL = perspect(COURT_LEFT, NET_Y);
+      const netR = perspect(COURT_RIGHT, NET_Y);
+      guide.lineStyle(4, 0x66ddff, 0.95);
+      guide.beginPath();
+      guide.moveTo(netL.x, netL.y);
+      guide.lineTo(netR.x, netR.y);
+      guide.strokePath();
+      guide.beginPath();
+      guide.moveTo(w / 2, h / 2 + 10);
+      guide.lineTo(w / 2, netL.y - 10);
+      guide.strokePath();
+    }
+    this.tutorialOverlay.add(guide);
+
+    const panel = this.add.graphics().setDepth(47);
+    panel.fillStyle(0x061125, 0.96);
+    panel.fillRoundedRect(w / 2 - 150, h / 2 - 125, 300, 250, 16);
+    panel.lineStyle(2, 0x2e63d3, 0.85);
+    panel.strokeRoundedRect(w / 2 - 150, h / 2 - 125, 300, 250, 16);
+    this.tutorialOverlay.add(panel);
+
+    const title = this.add.text(w / 2, h / 2 - 82, '📘 ' + step.title, {
+      fontSize: '22px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(48);
+    this.tutorialOverlay.add(title);
+
+    const body = this.add.text(w / 2, h / 2 - 26, step.body, {
+      fontSize: '17px', color: '#cfe3ff', align: 'center', lineSpacing: 7,
+    }).setOrigin(0.5).setDepth(48);
+    this.tutorialOverlay.add(body);
+
+    const stepTxt = this.add.text(w / 2, h / 2 + 30, `Step ${this.tutorialStep + 1}/${this.tutorialSteps.length}`, {
+      fontSize: '12px', color: '#88aadd',
+    }).setOrigin(0.5).setDepth(48);
+    this.tutorialOverlay.add(stepTxt);
+
+    const btn = this.add.graphics().setDepth(48);
+    btn.fillStyle(0x1a6bff, 1);
+    btn.fillRoundedRect(w / 2 - 94, h / 2 + 56, 188, 48, 10);
+    this.tutorialOverlay.add(btn);
+    const btnTxt = this.add.text(w / 2, h / 2 + 80, step.button, {
+      fontSize: '17px', fontStyle: 'bold', color: '#ffffff',
+    }).setOrigin(0.5).setDepth(49);
+    this.tutorialOverlay.add(btnTxt);
+
+    const z = this.add.zone(w / 2, h / 2 + 80, 188, 48).setInteractive().setDepth(50);
+    z.on('pointerdown', () => this._startTutorialAction());
+    this.tutorialOverlay.add(z);
+  }
+
+  _startTutorialAction() {
+    if (!this.tutorialActive) return;
+    const step = this.tutorialSteps[this.tutorialStep];
+    if (!step) { this._finishTutorial(); return; }
+
+    this._clearTutorialOverlay();
+    this.isPaused = false;
+
+    if (step.actionMs <= 0) {
+      this._finishTutorial();
+      return;
+    }
+    if (this.tutorialActionTimer) this.tutorialActionTimer.remove(false);
+    this.tutorialActionTimer = this.time.delayedCall(step.actionMs, () => {
+      if (!this.scene.isActive()) return;
+      if (!this.tutorialActive) return;
+      this.isPaused = true;
+      this.tutorialStep++;
+      this._showTutorialStep();
+    });
+  }
+
+  _finishTutorial() {
+    this.tutorialActive = false;
+    this.isPaused = false;
+    this._markTutorialSeen();
+    this._clearTutorialOverlay();
+  }
+
+  _clearTutorialOverlay() {
+    if (this.tutorialActionTimer) {
+      this.tutorialActionTimer.remove(false);
+      this.tutorialActionTimer = null;
+    }
+    if (this.tutorialOverlay) {
+      this.tutorialOverlay.clear(true, true);
+      this.tutorialOverlay = null;
+    }
   }
 
   _showPauseMenu() {

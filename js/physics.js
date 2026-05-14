@@ -77,6 +77,16 @@ class TennisBall {
         this.spin = 0.10;
     }
 
+    // Ensure shots that cross the net arc high enough to avoid constant net clips.
+    if (Math.sign(fromY - NET_Y) !== Math.sign(toY - NET_Y) && this.vy !== 0) {
+      const tNet = (NET_Y - fromY) / this.vy;
+      if (tNet > 0 && Number.isFinite(tNet)) {
+        const clearZ = type === 'smash' ? 32 : 42;
+        const minVzAtNet = (clearZ - this.z + 0.5 * GRAVITY * tNet * tNet) / tNet;
+        if (this.vz < minVzAtNet) this.vz = minVzAtNet;
+      }
+    }
+
     synth.ballHit(speed / 400);
   }
 
@@ -101,7 +111,7 @@ class TennisBall {
         this.bounces++;
         synth.bounce();
         this.scene.cameras.main.shake(60, 0.003);
-        this.bouncePlayer = this.y < NET_Y ? 1 : 2;
+        this.bouncePlayer = this.y > NET_Y ? 1 : 2;
         if (this.scene.emitBounce) this.scene.emitBounce(this.x, this.y);
       } else {
         this.vz = 0;
