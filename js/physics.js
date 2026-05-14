@@ -3,6 +3,9 @@
    ============================================================ */
 'use strict';
 
+const STANDARD_NET_CLEARANCE_Z = 42;
+const SMASH_NET_CLEARANCE_Z = 32;
+
 class TennisBall {
   constructor(scene) {
     this.scene = scene;
@@ -81,7 +84,7 @@ class TennisBall {
     if (Math.sign(fromY - NET_Y) !== Math.sign(toY - NET_Y) && this.vy !== 0) {
       const tNet = (NET_Y - fromY) / this.vy;
       if (tNet > 0 && Number.isFinite(tNet)) {
-        const clearZ = type === 'smash' ? 32 : 42;
+        const clearZ = type === 'smash' ? SMASH_NET_CLEARANCE_Z : STANDARD_NET_CLEARANCE_Z;
         const minVzAtNet = (clearZ - this.z + 0.5 * GRAVITY * tNet * tNet) / tNet;
         if (this.vz < minVzAtNet) this.vz = minVzAtNet;
       }

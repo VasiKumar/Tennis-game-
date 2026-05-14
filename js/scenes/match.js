@@ -4,6 +4,8 @@
    ============================================================ */
 'use strict';
 
+const TUTORIAL_ACTION_DURATION_MS = 2600;
+
 class MatchScene extends Phaser.Scene {
   constructor() { super('MatchScene'); }
 
@@ -84,14 +86,14 @@ class MatchScene extends Phaser.Scene {
         body: 'Use the LEFT JOYSTICK\n(Arrow keys / WASD also work).',
         button: 'TRY MOVE',
         guide: 'joystick',
-        actionMs: 2600,
+        actionMs: TUTORIAL_ACTION_DURATION_MS,
       },
       {
         title: 'HIT',
         body: 'Tap HIT (or Space / Enter)\nto serve and return shots.',
         button: 'TRY HIT',
         guide: 'hit',
-        actionMs: 2600,
+        actionMs: TUTORIAL_ACTION_DURATION_MS,
       },
       {
         title: 'SHOT TYPES',
